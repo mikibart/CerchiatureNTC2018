@@ -1,1 +1,0 @@
-"""Gestione input/output file"""

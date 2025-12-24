@@ -231,7 +231,16 @@ class MainWindow(QMainWindow):
         open_action.setStatusTip('Apri un progetto esistente')
         open_action.triggered.connect(self.open_project)
         file_menu.addAction(open_action)
-        
+
+        # Importa da ACCA
+        import_acca_action = QAction('&Importa da ACCA (.iEM)...', self)
+        import_acca_action.setShortcut('Ctrl+I')
+        import_acca_action.setStatusTip('Importa progetto da file ACCA Calcolus-Cerchiatura')
+        import_acca_action.triggered.connect(self.import_acca_project)
+        file_menu.addAction(import_acca_action)
+
+        file_menu.addSeparator()
+
         save_action = QAction(QIcon.fromTheme('document-save'), '&Salva Progetto', self)
         save_action.setShortcut('Ctrl+S')
         save_action.setStatusTip('Salva il progetto corrente')
@@ -564,7 +573,149 @@ class MainWindow(QMainWindow):
                 self, "Errore",
                 f"Errore nel caricamento del file:\n{str(e)}"
             )
-            
+
+    def import_acca_project(self):
+        """Importa progetto da file ACCA iEM"""
+        if self.is_modified:
+            reply = QMessageBox.question(
+                self, 'Importa Progetto ACCA',
+                'Il progetto corrente ha modifiche non salvate.\n'
+                'Vuoi salvare prima di importare un altro progetto?',
+                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel
+            )
+
+            if reply == QMessageBox.Save:
+                if not self.save_project():
+                    return
+            elif reply == QMessageBox.Cancel:
+                return
+
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Importa Progetto ACCA",
+            "",
+            "File ACCA iEM (*.iEM);;Tutti i file (*.*)"
+        )
+
+        if filename:
+            self.load_acca_file(filename)
+
+    def load_acca_file(self, filename):
+        """Carica un file ACCA iEM"""
+        try:
+            # Importa modulo ACCA
+            import sys
+            if 'src' not in sys.path:
+                sys.path.insert(0, 'src')
+            from file_io.acca_importer import import_acca_file
+
+            # Mostra dialogo di progresso
+            progress = QProgressDialog("Importazione in corso...", None, 0, 0, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setWindowTitle("Importazione ACCA")
+            progress.show()
+            QApplication.processEvents()
+
+            # Importa il progetto
+            project = import_acca_file(filename)
+
+            progress.close()
+
+            if project:
+                # Mostra riepilogo importazione
+                summary = project.get_summary()
+                msg = f"""
+<h3>Importazione completata</h3>
+<p><b>Progetto:</b> {summary.get('name', 'N/D')}</p>
+<p><b>Localizzazione:</b> {summary.get('location', 'N/D')}</p>
+<p><b>Aperture:</b> {summary.get('num_openings', 0)}</p>
+<p><b>Dimensioni muro:</b> {summary.get('wall_dimensions', 'N/D')}</p>
+"""
+                if project.verification_results:
+                    msg += f"""
+<p><b>Verifiche:</b> {'Tutte OK' if summary.get('all_verified') else 'Alcune non verificate'}</p>
+<p><b>CS minimo:</b> {summary.get('min_safety_factor', 'N/D'):.2f}</p>
+"""
+                QMessageBox.information(self, "Importazione ACCA", msg)
+
+                # Converti in formato interno e carica nei moduli
+                self.load_imported_project(project)
+
+                # Aggiorna stato
+                self.current_file = None  # File importato, non salvato
+                self.is_modified = True
+                self.update_title()
+
+                self.status_bar.showMessage(
+                    f"Progetto importato da ACCA: {os.path.basename(filename)}", 5000
+                )
+            else:
+                QMessageBox.warning(
+                    self, "Errore Importazione",
+                    "Impossibile importare il file ACCA.\n"
+                    "Verifica che il file sia un database iEM valido."
+                )
+
+        except ImportError as e:
+            QMessageBox.critical(
+                self, "Errore",
+                f"Modulo di importazione non disponibile:\n{str(e)}"
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Errore",
+                f"Errore durante l'importazione:\n{str(e)}"
+            )
+
+    def load_imported_project(self, project):
+        """Carica un progetto importato nei moduli GUI"""
+        try:
+            # Converti dati del muro
+            if project.wall and hasattr(self, 'input_module') and self.input_module:
+                wall_data = {
+                    'length': project.wall.length,
+                    'height': project.wall.height,
+                    'thickness': project.wall.thickness,
+                    'knowledge_level': project.wall.knowledge_level.value if hasattr(project.wall.knowledge_level, 'value') else 'LC1'
+                }
+                # Prova a caricare i dati nel modulo input
+                try:
+                    self.input_module.load_wall_data(wall_data)
+                except AttributeError:
+                    # Se il metodo non esiste, prova con load_data
+                    data = {'wall': wall_data}
+                    self.input_module.load_data(data)
+
+            # Converti aperture
+            if project.openings and hasattr(self, 'openings_module') and self.openings_module:
+                openings_data = []
+                for op in project.openings:
+                    op_dict = {
+                        'width': op.geometry.width,
+                        'height': op.geometry.height,
+                        'x': op.geometry.dist_left,
+                        'y': op.geometry.dist_base,
+                        'is_door': op.is_door,
+                        'frame_type': op.frame_type.value if hasattr(op.frame_type, 'value') else 1,
+                        'profiles': {
+                            'lintel': op.profiles.lintel_profile_id,
+                            'jamb': op.profiles.jamb_profile_id,
+                            'base': op.profiles.base_profile_id
+                        }
+                    }
+                    openings_data.append(op_dict)
+
+                try:
+                    self.openings_module.set_openings(openings_data)
+                except Exception as e:
+                    logger.warning(f"Errore caricamento aperture: {e}")
+
+            # Salva dati completi del progetto importato
+            self.project_data = project.to_dict()
+            self.project_data['imported_from_acca'] = True
+
+        except Exception as e:
+            logger.exception(f"Errore caricamento progetto importato: {e}")
+
     def save_project(self):
         """Salva progetto"""
         if not self.current_file:
