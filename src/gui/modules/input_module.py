@@ -307,6 +307,160 @@ class MaterialsManagerDialog(QDialog):
                     self.load_materials()
 
 
+class WallSegmentsDialog(QDialog):
+    """Dialog per gestione setti murari multipli"""
+
+    def __init__(self, parent=None, segments=None, total_length=500):
+        super().__init__(parent)
+        self.setWindowTitle("Gestione Setti Murari")
+        self.setModal(True)
+        self.resize(600, 400)
+        self.segments = segments.copy() if segments else []
+        self.total_length = total_length
+        self.setup_ui()
+        self.load_segments()
+
+    def setup_ui(self):
+        layout = QVBoxLayout()
+
+        # Istruzioni
+        info = QLabel(
+            "<b>Setti Murari</b><br>"
+            "Definisci i tratti del muro con altezze diverse.<br>"
+            "Ogni setto ha una base e altezze sx/dx indipendenti."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        # Tabella setti
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["Base (cm)", "Altezza SX (cm)", "Altezza DX (cm)", ""])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        layout.addWidget(self.table)
+
+        # Pulsanti
+        btn_layout = QHBoxLayout()
+
+        add_btn = QPushButton("Aggiungi Setto")
+        add_btn.clicked.connect(self.add_segment)
+        btn_layout.addWidget(add_btn)
+
+        remove_btn = QPushButton("Rimuovi Selezionato")
+        remove_btn.clicked.connect(self.remove_segment)
+        btn_layout.addWidget(remove_btn)
+
+        auto_btn = QPushButton("Dividi in 2 Setti")
+        auto_btn.clicked.connect(self.auto_divide)
+        btn_layout.addWidget(auto_btn)
+
+        layout.addLayout(btn_layout)
+
+        # Info lunghezza
+        self.length_label = QLabel()
+        layout.addWidget(self.length_label)
+
+        # Pulsanti OK/Cancel
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.setLayout(layout)
+
+    def load_segments(self):
+        """Carica setti nella tabella"""
+        self.table.setRowCount(len(self.segments))
+        for i, seg in enumerate(self.segments):
+            self.table.setItem(i, 0, QTableWidgetItem(str(seg.get('Base', 100))))
+            self.table.setItem(i, 1, QTableWidgetItem(str(seg.get('AltezzaSx', 300))))
+            self.table.setItem(i, 2, QTableWidgetItem(str(seg.get('AltezzaDx', 300))))
+
+            # Pulsante rimuovi
+            remove_btn = QPushButton("X")
+            remove_btn.setMaximumWidth(30)
+            remove_btn.clicked.connect(lambda checked, row=i: self.remove_row(row))
+            self.table.setCellWidget(i, 3, remove_btn)
+
+        self.update_length_info()
+
+    def add_segment(self):
+        """Aggiunge un nuovo setto"""
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        self.table.setItem(row, 0, QTableWidgetItem("100"))
+        self.table.setItem(row, 1, QTableWidgetItem("300"))
+        self.table.setItem(row, 2, QTableWidgetItem("300"))
+
+        remove_btn = QPushButton("X")
+        remove_btn.setMaximumWidth(30)
+        remove_btn.clicked.connect(lambda: self.remove_row(row))
+        self.table.setCellWidget(row, 3, remove_btn)
+
+        self.update_length_info()
+
+    def remove_segment(self):
+        """Rimuove il setto selezionato"""
+        row = self.table.currentRow()
+        if row >= 0:
+            self.table.removeRow(row)
+            self.update_length_info()
+
+    def remove_row(self, row):
+        """Rimuove una riga specifica"""
+        if row < self.table.rowCount():
+            self.table.removeRow(row)
+            self.update_length_info()
+
+    def auto_divide(self):
+        """Divide automaticamente in 2 setti spioventi"""
+        half = self.total_length / 2
+        self.table.setRowCount(0)
+
+        # Setto 1: parte sinistra (sale verso destra)
+        self.table.insertRow(0)
+        self.table.setItem(0, 0, QTableWidgetItem(str(int(half))))
+        self.table.setItem(0, 1, QTableWidgetItem("300"))
+        self.table.setItem(0, 2, QTableWidgetItem("400"))
+
+        # Setto 2: parte destra (scende verso destra)
+        self.table.insertRow(1)
+        self.table.setItem(1, 0, QTableWidgetItem(str(int(half))))
+        self.table.setItem(1, 1, QTableWidgetItem("400"))
+        self.table.setItem(1, 2, QTableWidgetItem("300"))
+
+        self.update_length_info()
+
+    def update_length_info(self):
+        """Aggiorna info lunghezza totale"""
+        total = 0
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item:
+                try:
+                    total += int(item.text())
+                except ValueError:
+                    pass
+        self.length_label.setText(f"Lunghezza totale: {total} cm")
+
+    def get_segments(self):
+        """Restituisce la lista dei setti"""
+        segments = []
+        for row in range(self.table.rowCount()):
+            try:
+                seg = {
+                    'ID': row + 1,
+                    'Base': int(self.table.item(row, 0).text()),
+                    'AltezzaSx': int(self.table.item(row, 1).text()),
+                    'AltezzaDx': int(self.table.item(row, 2).text()),
+                    'AltezzaCostante': False
+                }
+                segments.append(seg)
+            except (ValueError, AttributeError):
+                pass
+        return segments
+
+
 class InputModule(QWidget):
     """Modulo per input dati struttura con gestione materiali avanzata"""
     
@@ -451,10 +605,10 @@ class InputModule(QWidget):
         return group
         
     def create_wall_group(self):
-        """Crea gruppo geometria muro"""
+        """Crea gruppo geometria muro con supporto altezza variabile"""
         group = QGroupBox("Geometria Muro")
         layout = QGridLayout()
-        
+
         # Lunghezza
         layout.addWidget(QLabel("Lunghezza L:"), 0, 0)
         self.wall_length = QSpinBox()
@@ -463,27 +617,104 @@ class InputModule(QWidget):
         self.wall_length.setSuffix(" cm")
         self.wall_length.setToolTip("Lunghezza totale del muro")
         layout.addWidget(self.wall_length, 0, 1)
-        
-        # Altezza
+
+        # Altezza standard (media)
         layout.addWidget(QLabel("Altezza H:"), 1, 0)
         self.wall_height = QSpinBox()
         self.wall_height.setRange(100, 1000)
         self.wall_height.setValue(350)
         self.wall_height.setSuffix(" cm")
-        self.wall_height.setToolTip("Altezza del muro")
+        self.wall_height.setToolTip("Altezza del muro (media se variabile)")
         layout.addWidget(self.wall_height, 1, 1)
-        
+
+        # Checkbox altezza variabile
+        self.variable_height_check = QCheckBox("Altezza variabile")
+        self.variable_height_check.setToolTip("Abilita per muri inclinati o a spiovente")
+        self.variable_height_check.stateChanged.connect(self.on_variable_height_changed)
+        layout.addWidget(self.variable_height_check, 1, 2)
+
+        # Altezza sinistra (nascosta inizialmente)
+        self.height_left_label = QLabel("Altezza SX:")
+        self.height_left_label.setVisible(False)
+        layout.addWidget(self.height_left_label, 2, 0)
+
+        self.wall_height_left = QSpinBox()
+        self.wall_height_left.setRange(100, 1000)
+        self.wall_height_left.setValue(350)
+        self.wall_height_left.setSuffix(" cm")
+        self.wall_height_left.setToolTip("Altezza lato sinistro")
+        self.wall_height_left.setVisible(False)
+        layout.addWidget(self.wall_height_left, 2, 1)
+
+        # Altezza destra (nascosta inizialmente)
+        self.height_right_label = QLabel("Altezza DX:")
+        self.height_right_label.setVisible(False)
+        layout.addWidget(self.height_right_label, 2, 2)
+
+        self.wall_height_right = QSpinBox()
+        self.wall_height_right.setRange(100, 1000)
+        self.wall_height_right.setValue(350)
+        self.wall_height_right.setSuffix(" cm")
+        self.wall_height_right.setToolTip("Altezza lato destro")
+        self.wall_height_right.setVisible(False)
+        layout.addWidget(self.wall_height_right, 2, 3)
+
         # Spessore
-        layout.addWidget(QLabel("Spessore s:"), 2, 0)
+        layout.addWidget(QLabel("Spessore s:"), 3, 0)
         self.wall_thickness = QSpinBox()
         self.wall_thickness.setRange(10, 100)
         self.wall_thickness.setValue(30)
         self.wall_thickness.setSuffix(" cm")
         self.wall_thickness.setToolTip("Spessore del muro")
-        layout.addWidget(self.wall_thickness, 2, 1)
-        
+        layout.addWidget(self.wall_thickness, 3, 1)
+
+        # Pulsante setti multipli
+        self.segments_btn = QPushButton("Setti multipli...")
+        self.segments_btn.setToolTip("Gestisci setti murari con altezze diverse")
+        self.segments_btn.clicked.connect(self.show_segments_dialog)
+        layout.addWidget(self.segments_btn, 3, 2, 1, 2)
+
+        # Lista setti (nascosta)
+        self.wall_segments = []
+
         group.setLayout(layout)
         return group
+
+    def on_variable_height_changed(self, state):
+        """Gestisce il cambio di stato del checkbox altezza variabile"""
+        visible = state == Qt.Checked
+
+        self.height_left_label.setVisible(visible)
+        self.wall_height_left.setVisible(visible)
+        self.height_right_label.setVisible(visible)
+        self.wall_height_right.setVisible(visible)
+
+        if visible:
+            # Inizializza con l'altezza corrente
+            h = self.wall_height.value()
+            self.wall_height_left.setValue(h)
+            self.wall_height_right.setValue(h)
+
+        self.on_wall_data_changed()
+
+    def show_segments_dialog(self):
+        """Mostra dialogo per gestione setti multipli"""
+        dialog = WallSegmentsDialog(self, self.wall_segments, self.wall_length.value())
+        if dialog.exec_() == QDialog.Accepted:
+            self.wall_segments = dialog.get_segments()
+            if self.wall_segments:
+                # Calcola lunghezza totale e altezze
+                total_length = sum(s.get('Base', 0) for s in self.wall_segments)
+                self.wall_length.setValue(int(total_length))
+
+                # Abilita altezza variabile
+                self.variable_height_check.setChecked(True)
+                first = self.wall_segments[0]
+                last = self.wall_segments[-1]
+                self.wall_height_left.setValue(int(first.get('AltezzaSx', 300)))
+                self.wall_height_right.setValue(int(last.get('AltezzaDx', 300)))
+
+            self.on_wall_data_changed()
         
     def create_masonry_group(self):
         """Crea gruppo caratteristiche muratura con gestione avanzata"""
@@ -839,29 +1070,49 @@ class InputModule(QWidget):
         self.wall_length.valueChanged.connect(self.on_wall_changed)
         self.wall_height.valueChanged.connect(self.on_wall_changed)
         self.wall_thickness.valueChanged.connect(self.on_wall_changed)
-        
+        self.wall_height_left.valueChanged.connect(self.on_wall_changed)
+        self.wall_height_right.valueChanged.connect(self.on_wall_changed)
+
         # Aperture
         self.add_opening_btn.clicked.connect(self.add_opening)
         self.edit_opening_btn.clicked.connect(self.edit_opening)
         self.remove_opening_btn.clicked.connect(self.remove_opening)
         self.openings_list.itemSelectionChanged.connect(self.on_opening_selection_changed)
         self.openings_list.itemDoubleClicked.connect(self.edit_opening)
-        
+
         # Altri cambiamenti
         self.project_name.textChanged.connect(lambda: self.data_changed.emit())
         self.project_location.textChanged.connect(lambda: self.data_changed.emit())
         self.project_client.textChanged.connect(lambda: self.data_changed.emit())
         self.vertical_load.valueChanged.connect(self.update_info)
-        
+
     def on_wall_changed(self):
         """Chiamato quando cambiano le dimensioni del muro"""
+        # Determina se usare altezza variabile
+        if self.variable_height_check.isChecked():
+            height_left = self.wall_height_left.value()
+            height_right = self.wall_height_right.value()
+            height_avg = (height_left + height_right) / 2
+        else:
+            height_left = self.wall_height.value()
+            height_right = self.wall_height.value()
+            height_avg = self.wall_height.value()
+
+        # Passa dati al canvas con supporto altezza variabile e setti
         self.wall_canvas.set_wall_data(
             self.wall_length.value(),
-            self.wall_height.value(),
-            self.wall_thickness.value()
+            height_avg,
+            self.wall_thickness.value(),
+            height_left=height_left,
+            height_right=height_right,
+            segments=self.wall_segments if hasattr(self, 'wall_segments') else []
         )
         self.update_info()
         self.data_changed.emit()
+
+    def on_wall_data_changed(self):
+        """Alias per on_wall_changed per compatibilità"""
+        self.on_wall_changed()
         
     def on_opening_selection_changed(self):
         """Chiamato quando cambia la selezione apertura"""
@@ -992,6 +1243,14 @@ class InputModule(QWidget):
         
     def collect_data(self):
         """Raccoglie tutti i dati del modulo"""
+        # Determina altezze in base al checkbox
+        if self.variable_height_check.isChecked():
+            height_left = self.wall_height_left.value()
+            height_right = self.wall_height_right.value()
+        else:
+            height_left = self.wall_height.value()
+            height_right = self.wall_height.value()
+
         return {
             'info': {
                 'name': self.project_name.text(),
@@ -1003,7 +1262,10 @@ class InputModule(QWidget):
             'wall': {
                 'length': self.wall_length.value(),
                 'height': self.wall_height.value(),
-                'thickness': self.wall_thickness.value()
+                'thickness': self.wall_thickness.value(),
+                'height_left': height_left,
+                'height_right': height_right,
+                'segments': self.wall_segments if hasattr(self, 'wall_segments') else []
             },
             'masonry': {
                 'type': self.masonry_type.currentText(),
@@ -1040,6 +1302,17 @@ class InputModule(QWidget):
         self.wall_length.setValue(wall.get('length', 423))
         self.wall_height.setValue(wall.get('height', 350))
         self.wall_thickness.setValue(wall.get('thickness', 30))
+
+        # Altezza variabile e setti
+        height_left = wall.get('height_left', wall.get('height', 350))
+        height_right = wall.get('height_right', wall.get('height', 350))
+        segments = wall.get('segments', [])
+
+        is_variable = abs(height_left - height_right) > 0.1 or len(segments) > 0
+        self.variable_height_check.setChecked(is_variable)
+        self.wall_height_left.setValue(int(height_left))
+        self.wall_height_right.setValue(int(height_right))
+        self.wall_segments = segments
         
         # Muratura
         masonry = data.get('masonry', {})

@@ -60,12 +60,24 @@ class AdvancedWallCanvas(QWidget):
         self.font_normal = QFont('Arial', 10)
         self.font_bold = QFont('Arial', 10, QFont.Bold)
         
-    def set_wall_data(self, length, height, thickness):
-        """Imposta dimensioni muro"""
+    def set_wall_data(self, length, height, thickness, height_left=None, height_right=None, segments=None):
+        """Imposta dimensioni muro con supporto altezza variabile
+
+        Args:
+            length: Lunghezza totale del muro (cm)
+            height: Altezza media o singola (cm)
+            thickness: Spessore (cm)
+            height_left: Altezza lato sinistro (cm), se diversa
+            height_right: Altezza lato destro (cm), se diversa
+            segments: Lista di setti murari [{base, height_left, height_right}, ...]
+        """
         self.wall_data = {
             'length': length,
             'height': height,
-            'thickness': thickness
+            'thickness': thickness,
+            'height_left': height_left if height_left is not None else height,
+            'height_right': height_right if height_right is not None else height,
+            'segments': segments or []
         }
         self.calculate_scale()
         self.update()
@@ -95,15 +107,35 @@ class AdvancedWallCanvas(QWidget):
         """Calcola scala ottimale per visualizzazione"""
         if not self.wall_data:
             return
-            
+
         margin = 100
         available_width = self.width() - 2 * margin
         available_height = self.height() - 2 * margin
-        
+
+        # Usa l'altezza massima per la scala
+        max_height = self.get_max_height()
+
         if available_width > 0 and available_height > 0:
             scale_x = available_width / self.wall_data['length']
-            scale_y = available_height / self.wall_data['height']
+            scale_y = available_height / max_height
             self.scale = min(scale_x, scale_y) * 0.9
+
+    def get_max_height(self):
+        """Restituisce l'altezza massima del muro (considerando setti)"""
+        if not self.wall_data:
+            return 300
+
+        max_h = self.wall_data.get('height', 300)
+
+        # Controlla altezze sx/dx
+        max_h = max(max_h, self.wall_data.get('height_left', max_h))
+        max_h = max(max_h, self.wall_data.get('height_right', max_h))
+
+        # Controlla setti
+        for seg in self.wall_data.get('segments', []):
+            max_h = max(max_h, seg.get('AltezzaSx', 0), seg.get('AltezzaDx', 0))
+
+        return max_h
             
     def wall_to_screen(self, x, y):
         """Converte coordinate muro in coordinate schermo"""
@@ -621,48 +653,149 @@ class AdvancedWallCanvas(QWidget):
             y += grid_spacing
             
     def draw_wall(self, painter):
-        """Disegna il muro"""
-        x1, y1 = self.wall_to_screen(0, 0)
-        x2, y2 = self.wall_to_screen(self.wall_data['length'], self.wall_data['height'])
-        
-        wall_rect = QRect(x1, y2, x2 - x1, y1 - y2)
-        painter.fillRect(wall_rect, self.colors['wall'])
+        """Disegna il muro con supporto per altezza variabile e setti multipli"""
+        segments = self.wall_data.get('segments', [])
+
+        if segments:
+            # Disegna setti multipli
+            self.draw_wall_segments(painter, segments)
+        else:
+            # Muro semplice con possibile altezza variabile
+            height_left = self.wall_data.get('height_left', self.wall_data['height'])
+            height_right = self.wall_data.get('height_right', self.wall_data['height'])
+
+            if abs(height_left - height_right) < 0.1:
+                # Muro rettangolare semplice
+                x1, y1 = self.wall_to_screen(0, 0)
+                x2, y2 = self.wall_to_screen(self.wall_data['length'], height_left)
+
+                wall_rect = QRect(x1, y2, x2 - x1, y1 - y2)
+                painter.fillRect(wall_rect, self.colors['wall'])
+                painter.setPen(QPen(self.colors['wall_border'], 2))
+                painter.drawRect(wall_rect)
+            else:
+                # Muro trapezoidale (altezza variabile)
+                self.draw_variable_height_wall(painter, 0, self.wall_data['length'],
+                                               height_left, height_right)
+
+    def draw_variable_height_wall(self, painter, x_start, x_end, h_left, h_right):
+        """Disegna un muro con altezza variabile (trapezio)"""
+        # Crea il poligono
+        path = QPainterPath()
+
+        # Punto in basso a sinistra
+        p1 = self.wall_to_screen(x_start, 0)
+        # Punto in alto a sinistra
+        p2 = self.wall_to_screen(x_start, h_left)
+        # Punto in alto a destra
+        p3 = self.wall_to_screen(x_end, h_right)
+        # Punto in basso a destra
+        p4 = self.wall_to_screen(x_end, 0)
+
+        path.moveTo(p1[0], p1[1])
+        path.lineTo(p2[0], p2[1])
+        path.lineTo(p3[0], p3[1])
+        path.lineTo(p4[0], p4[1])
+        path.closeSubpath()
+
+        # Riempi e disegna bordo
+        painter.fillPath(path, self.colors['wall'])
         painter.setPen(QPen(self.colors['wall_border'], 2))
-        painter.drawRect(wall_rect)
+        painter.drawPath(path)
+
+    def draw_wall_segments(self, painter, segments):
+        """Disegna setti murari multipli"""
+        x_current = 0
+
+        for i, seg in enumerate(segments):
+            base = seg.get('Base', 100)
+            h_left = seg.get('AltezzaSx', 300)
+            h_right = seg.get('AltezzaDx', 300)
+
+            # Disegna il setto come trapezio
+            self.draw_variable_height_wall(painter, x_current, x_current + base, h_left, h_right)
+
+            # Linea di separazione tra setti (tratteggiata)
+            if i < len(segments) - 1:
+                painter.setPen(QPen(self.colors['wall_border'], 1, Qt.DashLine))
+                sep_x, _ = self.wall_to_screen(x_current + base, 0)
+                _, sep_y_top = self.wall_to_screen(0, h_right)
+                _, sep_y_bottom = self.wall_to_screen(0, 0)
+                painter.drawLine(int(sep_x), int(sep_y_bottom), int(sep_x), int(sep_y_top))
+
+            x_current += base
         
     def draw_dimensions(self, painter):
-        """Disegna le quote del muro"""
+        """Disegna le quote del muro con supporto altezza variabile"""
         painter.setPen(QPen(self.colors['dimension'], 1))
         painter.setFont(self.font_normal)
-        
+
+        height_left = self.wall_data.get('height_left', self.wall_data['height'])
+        height_right = self.wall_data.get('height_right', self.wall_data['height'])
+        is_variable = abs(height_left - height_right) > 0.1
+
         # Quota orizzontale
         x1, y1 = self.wall_to_screen(0, -30)
         x2, y2 = self.wall_to_screen(self.wall_data['length'], -30)
-        
+
         painter.drawLine(int(x1), int(y1), int(x2), int(y1))
         painter.drawLine(int(x1), int(y1 - 5), int(x1), int(y1 + 5))
         painter.drawLine(int(x2), int(y1 - 5), int(x2), int(y1 + 5))
-        
+
         text = f"{self.wall_data['length']} cm"
         text_rect = painter.fontMetrics().boundingRect(text)
         text_x = int((x1 + x2) // 2 - text_rect.width() // 2)
         painter.drawText(text_x, int(y1 + 20), text)
-        
-        # Quota verticale
-        x1, y1 = self.wall_to_screen(-30, 0)
-        x2, y2 = self.wall_to_screen(-30, self.wall_data['height'])
-        
-        painter.drawLine(x1, y1, x1, y2)
-        painter.drawLine(x1 - 5, y1, x1 + 5, y1)
-        painter.drawLine(x1 - 5, y2, x1 + 5, y2)
-        
-        painter.save()
-        painter.translate(int(x1 - 10), int((y1 + y2) // 2))
-        painter.rotate(-90)
-        text = f"{self.wall_data['height']} cm"
-        text_rect = painter.fontMetrics().boundingRect(text)
-        painter.drawText(int(-text_rect.width() // 2), 0, text)
-        painter.restore()
+
+        if is_variable:
+            # Quote verticali separate per sx e dx
+            # Quota sinistra
+            x1_left, y1_left = self.wall_to_screen(-30, 0)
+            _, y2_left = self.wall_to_screen(-30, height_left)
+
+            painter.drawLine(x1_left, y1_left, x1_left, y2_left)
+            painter.drawLine(x1_left - 5, y1_left, x1_left + 5, y1_left)
+            painter.drawLine(x1_left - 5, y2_left, x1_left + 5, y2_left)
+
+            painter.save()
+            painter.translate(int(x1_left - 10), int((y1_left + y2_left) // 2))
+            painter.rotate(-90)
+            text = f"{int(height_left)} cm"
+            text_rect = painter.fontMetrics().boundingRect(text)
+            painter.drawText(int(-text_rect.width() // 2), 0, text)
+            painter.restore()
+
+            # Quota destra
+            x1_right, y1_right = self.wall_to_screen(self.wall_data['length'] + 30, 0)
+            _, y2_right = self.wall_to_screen(self.wall_data['length'] + 30, height_right)
+
+            painter.drawLine(x1_right, y1_right, x1_right, y2_right)
+            painter.drawLine(x1_right - 5, y1_right, x1_right + 5, y1_right)
+            painter.drawLine(x1_right - 5, y2_right, x1_right + 5, y2_right)
+
+            painter.save()
+            painter.translate(int(x1_right + 15), int((y1_right + y2_right) // 2))
+            painter.rotate(-90)
+            text = f"{int(height_right)} cm"
+            text_rect = painter.fontMetrics().boundingRect(text)
+            painter.drawText(int(-text_rect.width() // 2), 0, text)
+            painter.restore()
+        else:
+            # Quota verticale singola
+            x1, y1 = self.wall_to_screen(-30, 0)
+            x2, y2 = self.wall_to_screen(-30, height_left)
+
+            painter.drawLine(x1, y1, x1, y2)
+            painter.drawLine(x1 - 5, y1, x1 + 5, y1)
+            painter.drawLine(x1 - 5, y2, x1 + 5, y2)
+
+            painter.save()
+            painter.translate(int(x1 - 10), int((y1 + y2) // 2))
+            painter.rotate(-90)
+            text = f"{int(height_left)} cm"
+            text_rect = painter.fontMetrics().boundingRect(text)
+            painter.drawText(int(-text_rect.width() // 2), 0, text)
+            painter.restore()
         
     def draw_maschi_labels(self, painter):
         """Disegna etichette dei maschi murari"""

@@ -147,27 +147,25 @@ class ConcreteFrameCalculator:
         return K / 1000  # kN/m
         
     def _calculate_rc_beam_stiffness(self, L: float, rinforzo_data: Dict) -> float:
-        """Calcola rigidezza solo architrave C.A."""
-        # Proprietà calcestruzzo
-        concrete_class = rinforzo_data.get('classe_cls', 'C25/30')
-        concrete = self.concrete_properties.get(concrete_class, self.concrete_properties['C25/30'])
-        Ecm = concrete['Ecm'] * 1e6  # Pa
-        
-        # Sezione architrave
-        architrave = rinforzo_data.get('architrave', {})
-        b = architrave.get('base', 30) / 100  # m
-        h = architrave.get('altezza', 40) / 100  # m
-        
-        # Momento d'inerzia
-        I = b * h**3 / 12
-        
-        # Rigidezza trave appoggiata
-        K = 48 * Ecm * I / L**3
-        
-        # Riduzione per fessurazione
-        K *= 0.5
-        
-        return K / 1000  # kN/m
+        """
+        Calcola rigidezza LATERALE del solo architrave C.A.
+
+        NOTA IMPORTANTE: Un architrave senza piedritti NON fornisce rigidezza
+        laterale significativa perché non ci sono elementi verticali per
+        resistere alle forze orizzontali (sismiche).
+
+        L'architrave serve per:
+        - Trasferire i carichi verticali sopra l'apertura
+        - Contribuire alla RESISTENZA (capacità portante)
+
+        Ma NON contribuisce alla RIGIDEZZA LATERALE del sistema.
+
+        Returns:
+            K: Rigidezza laterale ≈ 0 kN/m
+        """
+        # Il solo architrave non fornisce rigidezza laterale
+        # perché mancano i piedritti per resistere alle forze orizzontali
+        return 0.0
         
     def calculate_frame_capacity(self, opening_data: Dict, rinforzo_data: Dict,
                                wall_data: Dict) -> Dict:

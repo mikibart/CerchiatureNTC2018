@@ -79,7 +79,7 @@ class SteelFrameCalculator:
         tipo = rinforzo_data.get('tipo', '')
         
         # Calcola rigidezza in base al tipo
-        if 'Telaio completo' in tipo:
+        if 'Telaio completo' in tipo or 'Telaio chiuso' in tipo:
             K = self._calculate_portal_frame_stiffness(h, L, rinforzo_data)
         elif 'Solo architrave' in tipo:
             K = self._calculate_beam_stiffness(L, rinforzo_data)
@@ -160,22 +160,25 @@ class SteelFrameCalculator:
         return K / 1000  # kN/m
         
     def _calculate_beam_stiffness(self, L: float, rinforzo_data: Dict) -> float:
-        """Calcola rigidezza solo architrave (trave su due appoggi elastici)"""
-        architrave = rinforzo_data.get('architrave', {})
-        
-        I_beam = self._get_profile_property(architrave.get('profilo'), 'Ix', architrave.get('ruotato'))
-        if not I_beam:
-            I_beam = 1000  # cm^4 default
-            
-        I_beam = I_beam * 1e-8  # m^4
-        
-        if architrave.get('doppio'):
-            I_beam *= 2
-            
-        # Rigidezza trave semplicemente appoggiata
-        K = 48 * self.E_s * 1e6 * I_beam / L**3
-        
-        return K / 1000  # kN/m
+        """
+        Calcola rigidezza LATERALE del solo architrave.
+
+        NOTA IMPORTANTE: Un architrave senza piedritti NON fornisce rigidezza
+        laterale significativa perché non ci sono elementi verticali per
+        resistere alle forze orizzontali (sismiche).
+
+        L'architrave serve per:
+        - Trasferire i carichi verticali sopra l'apertura
+        - Contribuire alla RESISTENZA (capacità portante)
+
+        Ma NON contribuisce alla RIGIDEZZA LATERALE del sistema.
+
+        Returns:
+            K: Rigidezza laterale ≈ 0 kN/m
+        """
+        # Il solo architrave non fornisce rigidezza laterale
+        # perché mancano i piedritti per resistere alle forze orizzontali
+        return 0.0
         
     def _calculate_arch_stiffness(self, L: float, h: float, rinforzo_data: Dict) -> float:
         """Calcola rigidezza arco metallico"""

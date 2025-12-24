@@ -197,10 +197,17 @@ class MasonryCalculator:
         
         # Parametri elastici
         E = masonry_data.get('E', 1410) * 1e6  # MPa -> Pa
-        nu = 0.2  # Coefficiente di Poisson per muratura
-        G = E / (2 * (1 + nu))  # Modulo di taglio
-        
-        logger.info(f"Parametri elastici: E={E/1e6:.0f} MPa, G={G/1e6:.0f} MPa")
+
+        # Usa G direttamente se fornito, altrimenti calcola da E e nu
+        G_provided = masonry_data.get('G')
+        if G_provided and G_provided > 0:
+            G = G_provided * 1e6  # MPa -> Pa
+            nu = E / (2 * G) - 1  # Calcola nu da E e G (inverso)
+        else:
+            nu = masonry_data.get('poisson', 0.2)  # Coefficiente di Poisson
+            G = E / (2 * (1 + nu))  # Modulo di taglio
+
+        logger.info(f"Parametri elastici: E={E/1e6:.0f} MPa, G={G/1e6:.0f} MPa, nu={nu:.2f}")
         
         # Condizioni di vincolo
         constraints = self.project_data.get('constraints', {})

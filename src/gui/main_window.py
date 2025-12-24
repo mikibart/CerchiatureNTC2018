@@ -456,10 +456,12 @@ class MainWindow(QMainWindow):
             wall_data = self.input_module.collect_data().get('wall')
             if wall_data:
                 self.openings_module.set_wall_data(wall_data)
-                
+
             # Sincronizza aperture dal modulo input al modulo aperture
-            openings = self.input_module.collect_data().get('openings', [])
-            self.openings_module.set_openings(openings)
+            # MA solo se non ci sono già aperture nel modulo (es. dopo importazione ACCA)
+            if not self.openings_module.openings:
+                openings = self.input_module.collect_data().get('openings', [])
+                self.openings_module.set_openings(openings)
             
         # Passa dati al modulo calcolo quando si attiva
         elif index == 2 and hasattr(self, 'calc_module'):
@@ -669,49 +671,169 @@ class MainWindow(QMainWindow):
     def load_imported_project(self, project):
         """Carica un progetto importato nei moduli GUI"""
         try:
-            # Converti dati del muro
-            if project.wall and hasattr(self, 'input_module') and self.input_module:
-                wall_data = {
-                    'length': project.wall.length,
-                    'height': project.wall.height,
-                    'thickness': project.wall.thickness,
-                    'knowledge_level': project.wall.knowledge_level.value if hasattr(project.wall.knowledge_level, 'value') else 'LC1'
-                }
-                # Prova a caricare i dati nel modulo input
-                try:
-                    self.input_module.load_wall_data(wall_data)
-                except AttributeError:
-                    # Se il metodo non esiste, prova con load_data
-                    data = {'wall': wall_data}
-                    self.input_module.load_data(data)
+            wall_data = None
+            openings_data = []
 
-            # Converti aperture
+            # Converti dati del muro (converti float a int per spinbox)
+            wall_segments = []
+            if project.wall:
+                # Estrai setti murari se presenti
+                wall_segments = project.wall.wall_segments if hasattr(project.wall, 'wall_segments') else []
+
+                # Calcola altezze sx/dx dai setti o dalla geometria
+                if wall_segments:
+                    first_seg = wall_segments[0]
+                    last_seg = wall_segments[-1]
+                    height_left = int(first_seg.get('AltezzaSx', project.wall.height))
+                    height_right = int(last_seg.get('AltezzaDx', project.wall.height))
+                    is_variable = abs(height_left - height_right) > 0.1
+                elif hasattr(project.wall, 'geometry') and project.wall.geometry:
+                    height_left = int(project.wall.geometry.height_left)
+                    height_right = int(project.wall.geometry.height_right)
+                    is_variable = abs(height_left - height_right) > 0.1
+                else:
+                    height_left = int(project.wall.height)
+                    height_right = int(project.wall.height)
+                    is_variable = False
+
+                wall_data = {
+                    'length': int(project.wall.length),
+                    'height': int(project.wall.height),
+                    'thickness': int(project.wall.thickness),
+                    'height_left': height_left,
+                    'height_right': height_right,
+                    'knowledge_level': project.wall.knowledge_level.value if hasattr(project.wall.knowledge_level, 'value') else 'LC1',
+                    'segments': wall_segments
+                }
+                logger.info(f"Dati muro importati: {wall_data}")
+                if wall_segments:
+                    logger.info(f"Setti murari importati: {len(wall_segments)}")
+
+                # Carica nel modulo input - imposta direttamente i valori
+                if hasattr(self, 'input_module') and self.input_module:
+                    try:
+                        self.input_module.wall_length.setValue(wall_data['length'])
+                        self.input_module.wall_height.setValue(wall_data['height'])
+                        self.input_module.wall_thickness.setValue(wall_data['thickness'])
+
+                        # Imposta altezza variabile se presente
+                        if is_variable or wall_segments:
+                            self.input_module.variable_height_check.setChecked(True)
+                            self.input_module.wall_height_left.setValue(height_left)
+                            self.input_module.wall_height_right.setValue(height_right)
+
+                        # Imposta setti
+                        if wall_segments:
+                            self.input_module.wall_segments = wall_segments
+
+                        # IMPORTANTE: Aggiorna il canvas del modulo Struttura
+                        self.input_module.on_wall_changed()
+
+                        logger.info("Valori muro impostati negli spinbox")
+                    except Exception as e:
+                        logger.warning(f"Errore impostazione spinbox muro: {e}")
+
+                # IMPORTANTE: Imposta dati muro nel modulo aperture PRIMA delle aperture
+                if hasattr(self, 'openings_module') and self.openings_module:
+                    self.openings_module.set_wall_data(wall_data)
+                    logger.info("Dati muro impostati nel modulo aperture")
+
+            # Converti aperture (converti float a int per spinbox)
             if project.openings and hasattr(self, 'openings_module') and self.openings_module:
                 openings_data = []
-                for op in project.openings:
+                for i, op in enumerate(project.openings):
+                    # Determina nome profilo (usa nome risolto se disponibile)
+                    lintel_name = op.profiles.lintel_profile_name or f"ID {op.profiles.lintel_profile_id}"
+                    jamb_name = op.profiles.jamb_profile_name or f"ID {op.profiles.jamb_profile_id}"
+                    base_name = op.profiles.base_profile_name or f"ID {op.profiles.base_profile_id}"
+
                     op_dict = {
-                        'width': op.geometry.width,
-                        'height': op.geometry.height,
-                        'x': op.geometry.dist_left,
-                        'y': op.geometry.dist_base,
+                        'id': i + 1,
+                        'name': f"A{i+1}",
+                        'width': int(op.geometry.width),
+                        'height': int(op.geometry.height),
+                        'x': int(op.geometry.dist_left),
+                        'y': int(op.geometry.dist_base),
+                        'type': 'Rettangolare',  # Tipo apertura per GUI
+                        'existing': op.situation.value == 1,  # 1 = esistente in ACCA
                         'is_door': op.is_door,
                         'frame_type': op.frame_type.value if hasattr(op.frame_type, 'value') else 1,
-                        'profiles': {
-                            'lintel': op.profiles.lintel_profile_id,
-                            'jamb': op.profiles.jamb_profile_id,
-                            'base': op.profiles.base_profile_id
+                        'rinforzo': {
+                            'tipo': 'Telaio chiuso' if op.frame_type.value == 1 else 'Solo architrave',
+                            'materiale': 'acciaio',
+                            'architrave': {
+                                'profilo': lintel_name,
+                                'n_profili': op.profiles.num_profiles,
+                                'Ix': op.profiles.lintel_Ix,
+                                'Wpl': op.profiles.lintel_Wpl
+                            },
+                            'piedritti': {
+                                'profilo': jamb_name,
+                                'n_profili': op.profiles.num_profiles,
+                                'Ix': op.profiles.jamb_Ix,
+                                'Wpl': op.profiles.jamb_Wpl
+                            },
+                            'base': {
+                                'profilo': base_name,
+                                'n_profili': op.profiles.num_profiles
+                            },
+                            'profiles': {
+                                'lintel': op.profiles.lintel_profile_id,
+                                'jamb': op.profiles.jamb_profile_id,
+                                'base': op.profiles.base_profile_id
+                            }
                         }
                     }
                     openings_data.append(op_dict)
+                    logger.info(f"Apertura importata: {op_dict}")
 
                 try:
-                    self.openings_module.set_openings(openings_data)
+                    # Imposta aperture nel modulo Aperture
+                    self.openings_module.openings = openings_data
+                    # Forza refresh completo
+                    self.openings_module.refresh_all()
+                    logger.info(f"Caricate {len(openings_data)} aperture nel modulo Aperture")
                 except Exception as e:
-                    logger.warning(f"Errore caricamento aperture: {e}")
+                    logger.warning(f"Errore caricamento aperture in modulo Aperture: {e}")
+
+                # IMPORTANTE: Carica aperture anche nel modulo Struttura (input_module)
+                try:
+                    if hasattr(self, 'input_module') and self.input_module:
+                        # Imposta aperture nel wall_canvas del modulo input
+                        self.input_module.wall_canvas.openings = openings_data.copy()
+                        self.input_module.update_openings_list()
+                        self.input_module.wall_canvas.update()
+                        logger.info(f"Caricate {len(openings_data)} aperture nel modulo Struttura")
+                except Exception as e:
+                    logger.warning(f"Errore caricamento aperture in modulo Struttura: {e}")
 
             # Salva dati completi del progetto importato
             self.project_data = project.to_dict()
             self.project_data['imported_from_acca'] = True
+
+            # IMPORTANTE: Imposta anche openings_module nei project_data per il calc_module
+            if wall_data:
+                self.project_data['wall'] = wall_data
+            if openings_data:
+                self.project_data['openings_module'] = {'openings': openings_data}
+                self.project_data['openings'] = openings_data
+                logger.info(f"Dati aperture salvati in project_data: {len(openings_data)} aperture")
+
+            # Forza refresh completo di tutti i widget
+            QApplication.processEvents()
+
+            # IMPORTANTE: Blocca i segnali durante il cambio tab per evitare che
+            # on_tab_changed sovrascriva le aperture appena importate
+            self.tabs.blockSignals(True)
+            self.tabs.setCurrentIndex(0)  # Tab Struttura (gestione progressiva)
+            self.tabs.blockSignals(False)
+
+            # Refresh finale delle aperture importate
+            if hasattr(self, 'openings_module') and self.openings_module:
+                self.openings_module.refresh_all()
+                self.openings_module.wall_canvas.update()
+                self.openings_module.openings_tree.update()
+                logger.info(f"Refresh finale: {len(self.openings_module.openings)} aperture visualizzate")
 
         except Exception as e:
             logger.exception(f"Errore caricamento progetto importato: {e}")

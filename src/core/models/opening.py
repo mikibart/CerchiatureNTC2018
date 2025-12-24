@@ -76,6 +76,15 @@ class OpeningProfiles:
     jamb_type: ProfileType = ProfileType.STEEL_PROFILE
     base_type: ProfileType = ProfileType.STEEL_PROFILE
     num_profiles: int = 1            # Numero di profili (doppio UPN, ecc.)
+    # Nomi profili risolti (popolati dall'importer)
+    lintel_profile_name: str = ""    # Nome profilo piattabanda (es. "HEA 200")
+    jamb_profile_name: str = ""      # Nome profilo piedritti
+    base_profile_name: str = ""      # Nome profilo base
+    # Proprietà sezione risolte
+    lintel_Ix: float = 0.0           # Momento d'inerzia piattabanda (cm⁴)
+    lintel_Wpl: float = 0.0          # Modulo plastico piattabanda (cm³)
+    jamb_Ix: float = 0.0             # Momento d'inerzia piedritti (cm⁴)
+    jamb_Wpl: float = 0.0            # Modulo plastico piedritti (cm³)
 
 
 @dataclass
@@ -234,7 +243,16 @@ class Opening:
                 'lintel_type': self.profiles.lintel_type.value,
                 'jamb_type': self.profiles.jamb_type.value,
                 'base_type': self.profiles.base_type.value,
-                'num_profiles': self.profiles.num_profiles
+                'num_profiles': self.profiles.num_profiles,
+                # Nomi profili risolti
+                'lintel_profile_name': self.profiles.lintel_profile_name,
+                'jamb_profile_name': self.profiles.jamb_profile_name,
+                'base_profile_name': self.profiles.base_profile_name,
+                # Proprietà sezione
+                'lintel_Ix': self.profiles.lintel_Ix,
+                'lintel_Wpl': self.profiles.lintel_Wpl,
+                'jamb_Ix': self.profiles.jamb_Ix,
+                'jamb_Wpl': self.profiles.jamb_Wpl
             },
             'opening_type': self.opening_type.value,
             'situation': self.situation.value,
@@ -285,7 +303,16 @@ class Opening:
             lintel_type=ProfileType(prof_data.get('lintel_type', 11001)),
             jamb_type=ProfileType(prof_data.get('jamb_type', 11001)),
             base_type=ProfileType(prof_data.get('base_type', 11001)),
-            num_profiles=prof_data.get('num_profiles', 1)
+            num_profiles=prof_data.get('num_profiles', 1),
+            # Nomi profili risolti
+            lintel_profile_name=prof_data.get('lintel_profile_name', ''),
+            jamb_profile_name=prof_data.get('jamb_profile_name', ''),
+            base_profile_name=prof_data.get('base_profile_name', ''),
+            # Proprietà sezione
+            lintel_Ix=prof_data.get('lintel_Ix', 0.0),
+            lintel_Wpl=prof_data.get('lintel_Wpl', 0.0),
+            jamb_Ix=prof_data.get('jamb_Ix', 0.0),
+            jamb_Wpl=prof_data.get('jamb_Wpl', 0.0)
         )
 
         # Armature

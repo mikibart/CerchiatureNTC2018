@@ -9,7 +9,10 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 import json
+import logging
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 # Import del widget canvas avanzato
 try:
@@ -1904,25 +1907,41 @@ class OpeningDetailWidget(QWidget):
         # Rinforzo
         rinforzo = opening_data.get('rinforzo')
         if rinforzo:
-            self.rinforzo_tipo_label.setText(rinforzo['tipo'])
+            self.rinforzo_tipo_label.setText(rinforzo.get('tipo', 'N.D.'))
             self.rinforzo_mat_label.setText(rinforzo.get('materiale', '-').upper())
             
-            # Descrizione dettagliata - CORREZIONE QUI
-            if rinforzo['materiale'] == 'acciaio':
-                desc = f"Classe {rinforzo['classe_acciaio']}\n"
-                # Usa .get() per evitare KeyError
-                desc += f"Architrave: {rinforzo['architrave'].get('n_profili', 1)}x {rinforzo['architrave'].get('profilo', 'N.D.')}"
-                if rinforzo['architrave'].get('ruotato'):
-                    desc += " - Ruotato 90°"
-                    
-                if 'piedritti' in rinforzo:
-                    desc += f"\nPiedritti: {rinforzo['piedritti'].get('n_profili', 1)}x {rinforzo['piedritti'].get('profilo', 'N.D.')}"
-                    if rinforzo['piedritti'].get('ruotato'):
+            # Descrizione dettagliata
+            if rinforzo.get('materiale') == 'acciaio':
+                # Usa .get() per evitare KeyError con dati importati
+                classe = rinforzo.get('classe_acciaio', 'S275')
+                desc = f"Classe {classe}\n"
+
+                # Gestisci sia formato vecchio (architrave dict) che nuovo (profiles)
+                if 'architrave' in rinforzo and isinstance(rinforzo['architrave'], dict):
+                    arch = rinforzo['architrave']
+                    desc += f"Architrave: {arch.get('n_profili', 1)}x {arch.get('profilo', 'N.D.')}"
+                    if arch.get('ruotato'):
                         desc += " - Ruotato 90°"
-                        
+                elif 'profiles' in rinforzo:
+                    # Formato importazione ACCA
+                    profiles = rinforzo['profiles']
+                    desc += f"Architrave: profilo ID {profiles.get('lintel', 'N.D.')}"
+                else:
+                    desc += "Architrave: N.D."
+
+                if 'piedritti' in rinforzo and isinstance(rinforzo['piedritti'], dict):
+                    piedr = rinforzo['piedritti']
+                    desc += f"\nPiedritti: {piedr.get('n_profili', 1)}x {piedr.get('profilo', 'N.D.')}"
+                    if piedr.get('ruotato'):
+                        desc += " - Ruotato 90°"
+                elif 'profiles' in rinforzo and rinforzo['profiles'].get('jamb'):
+                    desc += f"\nPiedritti: profilo ID {rinforzo['profiles'].get('jamb', 'N.D.')}"
+
                 # Base
-                if 'base' in rinforzo:
-                    desc += f"\nBase: {rinforzo['base']['tipo']}"
+                if 'base' in rinforzo and isinstance(rinforzo['base'], dict):
+                    desc += f"\nBase: {rinforzo['base'].get('tipo', 'N.D.')}"
+                elif 'profiles' in rinforzo and rinforzo['profiles'].get('base'):
+                    desc += f"\nBase: profilo ID {rinforzo['profiles'].get('base', 'N.D.')}"
                     
                 self.rinforzo_desc_label.setText(desc)
                 
@@ -2159,13 +2178,17 @@ class OpeningsModule(QWidget):
         self.wall_canvas.opening_selected.connect(self.select_opening)
         
     def set_wall_data(self, wall_data):
-        """Imposta dati del muro"""
+        """Imposta dati del muro con supporto altezza variabile"""
         self.wall_data = wall_data
         if wall_data:
+            # Passa dati estesi al canvas
             self.wall_canvas.set_wall_data(
                 wall_data['length'],
                 wall_data['height'],
-                wall_data['thickness']
+                wall_data['thickness'],
+                height_left=wall_data.get('height_left'),
+                height_right=wall_data.get('height_right'),
+                segments=wall_data.get('segments', [])
             )
             self.add_btn.setEnabled(True)
         else:
@@ -2185,7 +2208,7 @@ class OpeningsModule(QWidget):
     def refresh_tree(self):
         """Aggiorna albero aperture"""
         self.openings_tree.clear()
-        
+
         for i, opening in enumerate(self.openings):
             # Testo elementi
             name = f"A{i+1}"
@@ -2211,7 +2234,7 @@ class OpeningsModule(QWidget):
     def refresh_canvas(self):
         """Aggiorna canvas"""
         self.wall_canvas.clear_openings()
-        
+
         # Modifica colori aperture in base al rinforzo
         for opening in self.openings:
             opening_copy = opening.copy()
