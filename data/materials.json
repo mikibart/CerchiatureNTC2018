@@ -1,0 +1,16 @@
+{
+  "masonry_types": {
+    "pietrame": {
+      "description": "Muratura in pietrame disordinata",
+      "fcm": 1.0,
+      "tau0": 0.020,
+      "E": 870
+    },
+    "blocchi": {
+      "description": "Muratura in blocchi (tufo, calcarenite)",
+      "fcm": 2.0,
+      "tau0": 0.074,
+      "E": 1410
+    }
+  }
+}

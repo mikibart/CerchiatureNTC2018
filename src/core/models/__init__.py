@@ -1,0 +1,1 @@
+"""Modelli dati del dominio"""
