@@ -217,5 +217,283 @@ class NTC2018Verifier:
             summary.append("")
             summary.append("In alternativa, classificare l'intervento come MIGLIORAMENTO "
                          "o ADEGUAMENTO SISMICO con le relative verifiche globali.")
-                         
+
         return "\n".join(summary)
+
+    # =========================================================================
+    # VERIFICHE PIATTABANDA E PIEDRITTI (da Calcolus-CERCHIATURA)
+    # =========================================================================
+
+    def verify_lintel(self, opening_data: Dict, profile_data: Dict,
+                     masonry_data: Dict, loads: Dict = None) -> Dict:
+        """
+        Verifica piattabanda (architrave) secondo NTC 2018.
+
+        La piattabanda è l'elemento orizzontale superiore che deve resistere:
+        - Peso proprio del muro soprastante
+        - Carichi applicati
+        - Azioni sismiche
+
+        Args:
+            opening_data: Dati apertura (width, height, x, y)
+            profile_data: Dati profilo (tipo, dimensioni, proprietà)
+            masonry_data: Dati muratura (peso, spessore)
+            loads: Carichi aggiuntivi opzionali
+
+        Returns:
+            Dict con risultati verifica
+        """
+        # Estrai geometria
+        L_opening = opening_data.get('width', 120) / 100  # cm -> m
+        H_wall = opening_data.get('wall_height', 300) / 100  # cm -> m
+        H_opening = opening_data.get('height', 220) / 100  # cm -> m
+        Y_opening = opening_data.get('y', 0) / 100  # cm -> m
+        t_wall = masonry_data.get('thickness', 30) / 100  # cm -> m
+
+        # Altezza muro sopra l'apertura
+        H_above = H_wall - Y_opening - H_opening
+        if H_above < 0:
+            H_above = 0
+
+        # Peso proprio muratura sopra (triangolo di scarico o rettangolo)
+        gamma_mur = masonry_data.get('weight', 18)  # kN/m³
+        # Carico distribuito sulla piattabanda
+        # Schema semplificato: triangolo di carico (45°) fino a min(L_opening, H_above)
+        h_triangle = min(L_opening, H_above)
+        q_mur = gamma_mur * t_wall * h_triangle / 2  # kN/m
+
+        # Carichi aggiuntivi
+        q_add = 0
+        if loads:
+            q_add = loads.get('distributed_load', 0)  # kN/m
+            P_point = loads.get('point_load', 0)  # kN
+
+        q_total = q_mur + q_add
+
+        # Luce netta (luce + 2 * appoggio)
+        appoggio = 0.15  # m - appoggio sui maschi
+        L_eff = L_opening + 2 * appoggio
+
+        # Momento sollecitante (schema appoggio-appoggio)
+        M_Ed = q_total * L_eff**2 / 8  # kNm
+
+        # Taglio sollecitante
+        V_Ed = q_total * L_eff / 2  # kN
+
+        # Proprietà profilo
+        Wpl = profile_data.get('Wpl', 100)  # cm³ - modulo plastico
+        A_shear = profile_data.get('A_shear', 10)  # cm² - area di taglio
+        fy = profile_data.get('fy', 235)  # MPa - tensione snervamento
+
+        # Coefficiente di sicurezza acciaio
+        gamma_M0 = 1.05
+
+        # Resistenze
+        M_Rd = Wpl * (fy / gamma_M0) / 1000  # kNm (Wpl in cm³, fy in MPa)
+        V_Rd = A_shear * (fy / (math.sqrt(3) * gamma_M0)) / 10  # kN
+
+        # Verifiche
+        flex_ratio = M_Ed / M_Rd if M_Rd > 0 else float('inf')
+        shear_ratio = V_Ed / V_Rd if V_Rd > 0 else float('inf')
+
+        flex_ok = flex_ratio <= 1.0
+        shear_ok = shear_ratio <= 1.0
+
+        return {
+            'element': 'piattabanda',
+            'L_eff': L_eff * 100,  # cm
+            'q_mur': q_mur,
+            'q_total': q_total,
+            'M_Ed': M_Ed,
+            'V_Ed': V_Ed,
+            'M_Rd': M_Rd,
+            'V_Rd': V_Rd,
+            'flex_ratio': flex_ratio,
+            'shear_ratio': shear_ratio,
+            'flex_ok': flex_ok,
+            'shear_ok': shear_ok,
+            'verified': flex_ok and shear_ok
+        }
+
+    def verify_jamb(self, opening_data: Dict, profile_data: Dict,
+                   masonry_data: Dict, loads: Dict = None,
+                   seismic_force: float = 0) -> Dict:
+        """
+        Verifica piedritto (montante) secondo NTC 2018.
+
+        Il piedritto è l'elemento verticale laterale che deve resistere:
+        - Compressione dovuta al peso della muratura
+        - Flessione dovuta alle azioni orizzontali
+        - Instabilità (verifica a compressione)
+
+        Args:
+            opening_data: Dati apertura
+            profile_data: Dati profilo
+            masonry_data: Dati muratura
+            loads: Carichi aggiuntivi
+            seismic_force: Forza sismica orizzontale [kN]
+
+        Returns:
+            Dict con risultati verifica
+        """
+        # Geometria
+        H_opening = opening_data.get('height', 220) / 100  # cm -> m
+        t_wall = masonry_data.get('thickness', 30) / 100  # cm -> m
+        L_opening = opening_data.get('width', 120) / 100  # cm -> m
+
+        # Proprietà profilo
+        A = profile_data.get('A', 20)  # cm² - area sezione
+        Ix = profile_data.get('Ix', 500)  # cm⁴ - momento inerzia
+        Wpl = profile_data.get('Wpl', 50)  # cm³ - modulo plastico
+        fy = profile_data.get('fy', 235)  # MPa
+        E_steel = 210000  # MPa
+
+        gamma_M0 = 1.05
+        gamma_M1 = 1.05  # Per instabilità
+
+        # Carico verticale dal peso muratura
+        gamma_mur = masonry_data.get('weight', 18)  # kN/m³
+        H_above = opening_data.get('wall_height', 300) / 100 - opening_data.get('height', 220) / 100 - opening_data.get('y', 0) / 100
+        if H_above < 0:
+            H_above = 0
+
+        # Larghezza tributaria (metà larghezza apertura)
+        L_trib = L_opening / 2 + 0.15  # m
+
+        # Compressione sul piedritto
+        N_Ed = gamma_mur * t_wall * H_above * L_trib  # kN
+
+        # Momento da forza sismica (se applicata)
+        # Schema a mensola: M = F × h / 2 (ripartito sui 2 piedritti)
+        M_Ed = (seismic_force / 2) * H_opening / 2 if seismic_force > 0 else 0  # kNm
+
+        # Resistenze
+        N_Rd = A * (fy / gamma_M0) / 10  # kN
+        M_Rd = Wpl * (fy / gamma_M0) / 1000  # kNm
+
+        # Verifica instabilità (snellezza)
+        L_0 = H_opening  # Lunghezza libera di inflessione
+        i_min = math.sqrt(Ix / A)  # raggio d'inerzia (cm)
+        lambda_slender = (L_0 * 100) / i_min  # snellezza
+
+        # Snellezza limite (Eulero)
+        lambda_1 = math.pi * math.sqrt(E_steel / fy)  # circa 93.9 per S235
+        lambda_rel = lambda_slender / lambda_1  # snellezza relativa
+
+        # Curva di instabilità (curva b per profili laminati H)
+        alpha = 0.34  # curva b
+        phi = 0.5 * (1 + alpha * (lambda_rel - 0.2) + lambda_rel**2)
+        chi = 1 / (phi + math.sqrt(phi**2 - lambda_rel**2)) if phi**2 >= lambda_rel**2 else 0.5
+        chi = min(1.0, max(0.1, chi))
+
+        # Resistenza ridotta per instabilità
+        N_b_Rd = chi * A * (fy / gamma_M1) / 10  # kN
+
+        # Verifiche
+        compr_ratio = N_Ed / N_Rd if N_Rd > 0 else 0
+        buckling_ratio = N_Ed / N_b_Rd if N_b_Rd > 0 else 0
+        flex_ratio = M_Ed / M_Rd if M_Rd > 0 else 0
+
+        # Verifica combinata presso-flessione (formula semplificata)
+        combined_ratio = compr_ratio + flex_ratio
+
+        compr_ok = compr_ratio <= 1.0
+        buckling_ok = buckling_ratio <= 1.0
+        flex_ok = flex_ratio <= 1.0
+        combined_ok = combined_ratio <= 1.0
+
+        return {
+            'element': 'piedritto',
+            'H_eff': H_opening * 100,  # cm
+            'N_Ed': N_Ed,
+            'M_Ed': M_Ed,
+            'N_Rd': N_Rd,
+            'N_b_Rd': N_b_Rd,
+            'M_Rd': M_Rd,
+            'lambda_slender': lambda_slender,
+            'lambda_rel': lambda_rel,
+            'chi': chi,
+            'compr_ratio': compr_ratio,
+            'buckling_ratio': buckling_ratio,
+            'flex_ratio': flex_ratio,
+            'combined_ratio': combined_ratio,
+            'compr_ok': compr_ok,
+            'buckling_ok': buckling_ok,
+            'flex_ok': flex_ok,
+            'combined_ok': combined_ok,
+            'verified': compr_ok and buckling_ok and flex_ok and combined_ok
+        }
+
+    def verify_frame(self, opening_data: Dict, lintel_profile: Dict,
+                    jamb_profile: Dict, masonry_data: Dict,
+                    loads: Dict = None, seismic_force: float = 0) -> Dict:
+        """
+        Verifica completa telaio cerchiatura (piattabanda + piedritti).
+
+        Args:
+            opening_data: Dati apertura
+            lintel_profile: Profilo piattabanda
+            jamb_profile: Profilo piedritti
+            masonry_data: Dati muratura
+            loads: Carichi aggiuntivi
+            seismic_force: Forza sismica [kN]
+
+        Returns:
+            Dict con risultati verifiche complete
+        """
+        # Verifica piattabanda
+        lintel_result = self.verify_lintel(opening_data, lintel_profile,
+                                          masonry_data, loads)
+
+        # Verifica piedritti
+        jamb_result = self.verify_jamb(opening_data, jamb_profile,
+                                      masonry_data, loads, seismic_force)
+
+        # Risultato globale
+        all_ok = lintel_result['verified'] and jamb_result['verified']
+
+        return {
+            'lintel': lintel_result,
+            'jamb': jamb_result,
+            'verified': all_ok,
+            'summary': self._generate_frame_summary(lintel_result, jamb_result)
+        }
+
+    def _generate_frame_summary(self, lintel: Dict, jamb: Dict) -> str:
+        """Genera riepilogo testuale verifiche telaio"""
+        lines = []
+        lines.append("=" * 50)
+        lines.append("VERIFICA TELAIO CERCHIATURA")
+        lines.append("=" * 50)
+
+        # Piattabanda
+        lines.append("\nPIATTABANDA:")
+        lines.append(f"  Luce efficace: {lintel['L_eff']:.0f} cm")
+        lines.append(f"  Carico distribuito: q = {lintel['q_total']:.2f} kN/m")
+        lines.append(f"  Momento: M_Ed = {lintel['M_Ed']:.2f} kNm")
+        lines.append(f"  Taglio: V_Ed = {lintel['V_Ed']:.2f} kN")
+        lines.append(f"  Verifica flessione: {lintel['flex_ratio']:.2f} {'✓' if lintel['flex_ok'] else '✗'}")
+        lines.append(f"  Verifica taglio: {lintel['shear_ratio']:.2f} {'✓' if lintel['shear_ok'] else '✗'}")
+
+        # Piedritti
+        lines.append("\nPIEDRITTI:")
+        lines.append(f"  Altezza efficace: {jamb['H_eff']:.0f} cm")
+        lines.append(f"  Compressione: N_Ed = {jamb['N_Ed']:.2f} kN")
+        lines.append(f"  Snellezza: λ = {jamb['lambda_slender']:.1f}")
+        lines.append(f"  Fattore χ: {jamb['chi']:.3f}")
+        lines.append(f"  Verifica compressione: {jamb['compr_ratio']:.2f} {'✓' if jamb['compr_ok'] else '✗'}")
+        lines.append(f"  Verifica instabilità: {jamb['buckling_ratio']:.2f} {'✓' if jamb['buckling_ok'] else '✗'}")
+        if jamb['M_Ed'] > 0:
+            lines.append(f"  Verifica flessione: {jamb['flex_ratio']:.2f} {'✓' if jamb['flex_ok'] else '✗'}")
+            lines.append(f"  Verifica combinata: {jamb['combined_ratio']:.2f} {'✓' if jamb['combined_ok'] else '✗'}")
+
+        # Esito globale
+        lines.append("\n" + "=" * 50)
+        if lintel['verified'] and jamb['verified']:
+            lines.append("VERIFICA TELAIO: SODDISFATTA ✓")
+        else:
+            lines.append("VERIFICA TELAIO: NON SODDISFATTA ✗")
+            lines.append("Aumentare le dimensioni dei profili")
+        lines.append("=" * 50)
+
+        return "\n".join(lines)

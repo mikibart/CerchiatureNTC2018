@@ -290,6 +290,12 @@ class MainWindow(QMainWindow):
         import_acca_action.triggered.connect(self.import_acca_project)
         file_menu.addAction(import_acca_action)
 
+        # Importa da PT3
+        import_pt3_action = QAction('Importa da &PT3 (.pt3)...', self)
+        import_pt3_action.setStatusTip('Importa progetto da file PT3 (Particolare 3)')
+        import_pt3_action.triggered.connect(self.import_pt3_project)
+        file_menu.addAction(import_pt3_action)
+
         file_menu.addSeparator()
 
         save_action = QAction(QIcon.fromTheme('document-save'), '&Salva Progetto', self)
@@ -776,6 +782,254 @@ class MainWindow(QMainWindow):
                 f"Errore durante l'importazione:\n{str(e)}"
             )
 
+    def import_pt3_project(self):
+        """Importa progetto da file PT3 (Particolare 3)"""
+        if self.is_modified:
+            reply = QMessageBox.question(
+                self, 'Importa Progetto PT3',
+                'Il progetto corrente ha modifiche non salvate.\n'
+                'Vuoi salvare prima di importare un altro progetto?',
+                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel
+            )
+
+            if reply == QMessageBox.Save:
+                if not self.save_project():
+                    return
+            elif reply == QMessageBox.Cancel:
+                return
+
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Importa Progetto PT3",
+            "",
+            "File PT3 (*.pt3);;Tutti i file (*.*)"
+        )
+
+        if filename:
+            self.load_pt3_file(filename)
+
+    def load_pt3_file(self, filename):
+        """Carica un file PT3 (Particolare 3)"""
+        try:
+            # Importa modulo PT3
+            import sys
+            if 'src' not in sys.path:
+                sys.path.insert(0, 'src')
+            from core.importers.pt3_importer import import_pt3
+
+            # Mostra dialogo di progresso
+            progress = QProgressDialog("Importazione PT3 in corso...", None, 0, 0, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setWindowTitle("Importazione PT3")
+            progress.show()
+            QApplication.processEvents()
+
+            # Importa il progetto
+            project_data = import_pt3(filename)
+
+            progress.close()
+
+            if project_data:
+                # Mostra riepilogo importazione
+                wall = project_data.get('wall', {})
+                masonry = project_data.get('masonry', {})
+                openings = project_data.get('openings', [])
+
+                msg = f"""
+<h3>Importazione PT3 completata</h3>
+<p><b>File:</b> {os.path.basename(filename)}</p>
+<p><b>Dimensioni parete:</b> {wall.get('length', 0):.0f} x {wall.get('height', 0):.0f} x {wall.get('thickness', 0):.0f} cm</p>
+<p><b>Muratura:</b> {masonry.get('type', 'N/D')}</p>
+<p><b>Aperture:</b> {len(openings)}</p>
+"""
+                QMessageBox.information(self, "Importazione PT3", msg)
+
+                # Carica dati nei moduli GUI
+                self.load_pt3_data(project_data)
+
+                # Aggiorna stato
+                self.current_file = None  # File importato, non salvato
+                self.is_modified = True
+                self.update_title()
+
+                self.status_bar.showMessage(
+                    f"Progetto importato da PT3: {os.path.basename(filename)}", 5000
+                )
+            else:
+                QMessageBox.warning(
+                    self, "Errore Importazione",
+                    "Impossibile importare il file PT3.\n"
+                    "Verifica che il file sia un file PT3 valido."
+                )
+
+        except ImportError as e:
+            QMessageBox.critical(
+                self, "Errore",
+                f"Modulo di importazione PT3 non disponibile:\n{str(e)}"
+            )
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(
+                self, "Errore",
+                f"Errore durante l'importazione PT3:\n{str(e)}"
+            )
+
+    def load_pt3_data(self, project_data):
+        """Carica i dati importati da PT3 nei moduli GUI"""
+        try:
+            wall = project_data.get('wall', {})
+            masonry = project_data.get('masonry', {})
+            openings = project_data.get('openings', [])
+
+            # Carica dati parete nel modulo input
+            if hasattr(self, 'input_module') and self.input_module:
+                try:
+                    self.input_module.wall_length.setValue(int(wall.get('length', 300)))
+                    self.input_module.wall_height.setValue(int(wall.get('height', 300)))
+                    self.input_module.wall_thickness.setValue(int(wall.get('thickness', 30)))
+
+                    # Imposta tipo muratura se corrispondente
+                    masonry_type = masonry.get('type', '')
+                    index = self.input_module.masonry_type.findText(masonry_type)
+                    if index >= 0:
+                        self.input_module.masonry_type.setCurrentIndex(index)
+
+                    # Imposta proprietà meccaniche (questi sono i valori dal file PT3)
+                    if masonry.get('E', 0) > 0:
+                        self.input_module.E_modulus.setValue(int(masonry.get('E', 1500)))
+                    if masonry.get('G', 0) > 0:
+                        self.input_module.G_modulus.setValue(int(masonry.get('G', 500)))
+                    if masonry.get('tau0', 0) > 0:
+                        self.input_module.tau0.setValue(masonry.get('tau0', 0.06))
+                    if masonry.get('fcd', 0) > 0:
+                        self.input_module.fcm.setValue(masonry.get('fcd', 2.4))
+
+                    # Aggiorna il canvas del modulo Struttura
+                    self.input_module.on_wall_changed()
+
+                    logger.info("Valori PT3 impostati negli spinbox")
+                except Exception as e:
+                    logger.warning(f"Errore impostazione spinbox PT3: {e}")
+
+            # Prepara dati parete per modulo aperture
+            wall_data = {
+                'length': int(wall.get('length', 300)),
+                'height': int(wall.get('height', 300)),
+                'thickness': int(wall.get('thickness', 30)),
+                'height_left': int(wall.get('height', 300)),
+                'height_right': int(wall.get('height', 300)),
+                'knowledge_level': 'LC1'
+            }
+
+            # Imposta dati muro nel modulo aperture
+            if hasattr(self, 'openings_module') and self.openings_module:
+                self.openings_module.set_wall_data(wall_data)
+                logger.info("Dati muro PT3 impostati nel modulo aperture")
+
+            # Converti e carica aperture
+            if openings and hasattr(self, 'openings_module') and self.openings_module:
+                openings_data = []
+                for i, op in enumerate(openings):
+                    is_existing = op.get('existing', False)
+                    rinforzo = op.get('rinforzo') or {}
+                    profilo = rinforzo.get('profilo', 'HEA 120') if rinforzo else ''
+
+                    op_dict = {
+                        'id': i + 1,
+                        'name': f"A{i+1}",
+                        'width': int(op.get('width', 100)),
+                        'height': int(op.get('height', 200)),
+                        'x': int(op.get('x', 100)),
+                        'y': int(op.get('y', 0)),
+                        'type': op.get('type', 'Rettangolare'),
+                        'existing': is_existing,
+                        'is_door': op.get('y', 0) == 0,  # Se y=0, probabilmente è una porta
+                        'frame_type': 0 if is_existing else 1,  # 0=nessuno, 1=telaio chiuso
+                    }
+
+                    # Aggiungi rinforzo solo per aperture nuove
+                    if not is_existing and rinforzo:
+                        # Tipo deve corrispondere esattamente ai valori del combo
+                        # 0: "Telaio completo in acciaio"
+                        # 1: "Solo architrave in acciaio"
+                        tipo_rinforzo = rinforzo.get('tipo', 'telaio_chiuso')
+                        if 'telaio' in tipo_rinforzo.lower() or 'chiuso' in tipo_rinforzo.lower() or 'completo' in tipo_rinforzo.lower():
+                            tipo_gui = 'Telaio completo in acciaio'
+                        elif 'architrave' in tipo_rinforzo.lower():
+                            tipo_gui = 'Solo architrave in acciaio'
+                        else:
+                            tipo_gui = 'Telaio completo in acciaio'
+
+                        op_dict['rinforzo'] = {
+                            'tipo': tipo_gui,
+                            'materiale': 'acciaio',
+                            'architrave': {
+                                'profilo': profilo,
+                                'n_profili': rinforzo.get('n_profili', 1)
+                            },
+                            'piedritti': {
+                                'profilo': profilo,
+                                'n_profili': rinforzo.get('n_profili', 1)
+                            },
+                            # Base con trave di collegamento
+                            'base': {
+                                'tipo': 'Trave di collegamento',
+                                'trave': {
+                                    'profilo': profilo,
+                                    'n_profili': rinforzo.get('n_profili', 1)
+                                }
+                            }
+                        }
+                    else:
+                        op_dict['rinforzo'] = None
+
+                    openings_data.append(op_dict)
+                    status = "ESISTENTE" if is_existing else f"NUOVA con {profilo}"
+                    logger.info(f"Apertura PT3 {i+1}: {op_dict['width']}x{op_dict['height']} @ ({op_dict['x']}, {op_dict['y']}) - {status}")
+
+                try:
+                    # Imposta aperture nel modulo Aperture
+                    self.openings_module.openings = openings_data
+                    self.openings_module.refresh_all()
+                    logger.info(f"Caricate {len(openings_data)} aperture PT3 nel modulo Aperture")
+                except Exception as e:
+                    logger.warning(f"Errore caricamento aperture PT3: {e}")
+
+                # Carica aperture anche nel modulo Struttura
+                try:
+                    if hasattr(self, 'input_module') and self.input_module:
+                        self.input_module.wall_canvas.openings = openings_data.copy()
+                        self.input_module.update_openings_list()
+                        self.input_module.wall_canvas.update()
+                        logger.info(f"Caricate {len(openings_data)} aperture PT3 nel modulo Struttura")
+                except Exception as e:
+                    logger.warning(f"Errore caricamento aperture PT3 in Struttura: {e}")
+
+                # Salva dati in project_data
+                self.project_data = {
+                    'wall': wall_data,
+                    'masonry': masonry,
+                    'openings': openings_data,
+                    'openings_module': {'openings': openings_data},
+                    'imported_from_pt3': True
+                }
+
+            # Forza refresh
+            QApplication.processEvents()
+
+            # Vai al tab Struttura
+            self.tabs.blockSignals(True)
+            self.tabs.setCurrentIndex(0)
+            self.tabs.blockSignals(False)
+
+            # Refresh finale
+            if hasattr(self, 'openings_module') and self.openings_module:
+                self.openings_module.refresh_all()
+                self.openings_module.wall_canvas.update()
+
+        except Exception as e:
+            logger.exception(f"Errore caricamento dati PT3: {e}")
+
     def load_imported_project(self, project):
         """Carica un progetto importato nei moduli GUI"""
         try:
@@ -867,7 +1121,7 @@ class MainWindow(QMainWindow):
                         'is_door': op.is_door,
                         'frame_type': op.frame_type.value if hasattr(op.frame_type, 'value') else 1,
                         'rinforzo': {
-                            'tipo': 'Telaio chiuso' if op.frame_type.value == 1 else 'Solo architrave',
+                            'tipo': 'Telaio completo in acciaio' if op.frame_type.value == 1 else 'Solo architrave in acciaio',
                             'materiale': 'acciaio',
                             'architrave': {
                                 'profilo': lintel_name,
@@ -882,8 +1136,11 @@ class MainWindow(QMainWindow):
                                 'Wpl': op.profiles.jamb_Wpl
                             },
                             'base': {
-                                'profilo': base_name,
-                                'n_profili': op.profiles.num_profiles
+                                'tipo': 'Trave di collegamento',
+                                'trave': {
+                                    'profilo': base_name,
+                                    'n_profili': op.profiles.num_profiles
+                                }
                             },
                             'profiles': {
                                 'lintel': op.profiles.lintel_profile_id,

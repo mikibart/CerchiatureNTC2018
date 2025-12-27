@@ -837,32 +837,195 @@ class InputModule(QWidget):
         layout.addWidget(self.material_info_label, 5, 2, 1, 3)
         
         # Valori di progetto (con FC applicato)
-        design_group = QGroupBox("Valori di Progetto")
+        design_group = QGroupBox("Valori di Progetto (Fatto)")
         design_layout = QGridLayout()
-        
+
         design_layout.addWidget(QLabel("f<sub>cmd</sub>:"), 0, 0)
         self.fcm_d_label = QLabel("-")
         self.fcm_d_label.setStyleSheet("font-weight: bold;")
         design_layout.addWidget(self.fcm_d_label, 0, 1)
-        
+
         design_layout.addWidget(QLabel("τ<sub>0d</sub>:"), 0, 2)
         self.tau0_d_label = QLabel("-")
         self.tau0_d_label.setStyleSheet("font-weight: bold;")
         design_layout.addWidget(self.tau0_d_label, 0, 3)
-        
+
         design_group.setLayout(design_layout)
         layout.addWidget(design_group, 6, 0, 1, 5)
-        
+
+        # === MATERIALE PROGETTO (da Calcolus-CERCHIATURA) ===
+        # Checkbox per abilitare materiale diverso per progetto
+        self.different_material_progetto = QCheckBox("Materiale diverso per stato di Progetto")
+        self.different_material_progetto.setToolTip(
+            "Abilita per specificare proprietà muratura diverse per lo stato di progetto.\n"
+            "Utile per interventi di rinforzo che modificano le proprietà meccaniche."
+        )
+        layout.addWidget(self.different_material_progetto, 7, 0, 1, 5)
+
+        # Gruppo materiale progetto (nascosto inizialmente)
+        self.progetto_masonry_group = QGroupBox("Muratura Stato di Progetto (dopo intervento)")
+        self.progetto_masonry_group.setStyleSheet("QGroupBox { color: #0066cc; }")
+        progetto_layout = QGridLayout()
+
+        # Tipologia progetto
+        progetto_layout.addWidget(QLabel("Tipologia:"), 0, 0)
+        self.masonry_type_progetto = QComboBox()
+        self.masonry_type_progetto.setMaximumWidth(400)
+        progetto_layout.addWidget(self.masonry_type_progetto, 0, 1, 1, 3)
+
+        # Parametri meccanici progetto
+        progetto_layout.addWidget(QLabel("f<sub>cm</sub> [N/mm²]:"), 1, 0)
+        self.fcm_progetto = QDoubleSpinBox()
+        self.fcm_progetto.setRange(0.1, 15.0)
+        self.fcm_progetto.setValue(3.0)
+        self.fcm_progetto.setDecimals(1)
+        self.fcm_progetto.setSingleStep(0.1)
+        progetto_layout.addWidget(self.fcm_progetto, 1, 1)
+
+        progetto_layout.addWidget(QLabel("τ<sub>0</sub> [N/mm²]:"), 1, 2)
+        self.tau0_progetto = QDoubleSpinBox()
+        self.tau0_progetto.setRange(0.001, 1.5)
+        self.tau0_progetto.setValue(0.10)
+        self.tau0_progetto.setDecimals(3)
+        self.tau0_progetto.setSingleStep(0.001)
+        progetto_layout.addWidget(self.tau0_progetto, 1, 3)
+
+        progetto_layout.addWidget(QLabel("E [N/mm²]:"), 2, 0)
+        self.E_modulus_progetto = QSpinBox()
+        self.E_modulus_progetto.setRange(100, 15000)
+        self.E_modulus_progetto.setValue(2000)
+        self.E_modulus_progetto.setSingleStep(10)
+        progetto_layout.addWidget(self.E_modulus_progetto, 2, 1)
+
+        progetto_layout.addWidget(QLabel("G [N/mm²]:"), 2, 2)
+        self.G_modulus_progetto = QSpinBox()
+        self.G_modulus_progetto.setRange(50, 6000)
+        self.G_modulus_progetto.setValue(670)
+        self.G_modulus_progetto.setSingleStep(10)
+        progetto_layout.addWidget(self.G_modulus_progetto, 2, 3)
+
+        # Fattore di miglioramento
+        progetto_layout.addWidget(QLabel("Fattore miglioramento:"), 3, 0)
+        self.improvement_factor = QDoubleSpinBox()
+        self.improvement_factor.setRange(1.0, 3.0)
+        self.improvement_factor.setValue(1.5)
+        self.improvement_factor.setDecimals(2)
+        self.improvement_factor.setSingleStep(0.1)
+        self.improvement_factor.setToolTip("Fattore moltiplicativo per parametri dopo rinforzo (es. iniezioni)")
+        progetto_layout.addWidget(self.improvement_factor, 3, 1)
+
+        # Pulsante applica fattore
+        self.apply_factor_btn = QPushButton("Applica fattore")
+        self.apply_factor_btn.setToolTip("Applica il fattore di miglioramento ai parametri Fatto")
+        self.apply_factor_btn.clicked.connect(self._apply_improvement_factor)
+        progetto_layout.addWidget(self.apply_factor_btn, 3, 2, 1, 2)
+
+        # Valori di progetto calcolati
+        progetto_layout.addWidget(QLabel("f<sub>cmd</sub> progetto:"), 4, 0)
+        self.fcm_d_progetto_label = QLabel("-")
+        self.fcm_d_progetto_label.setStyleSheet("font-weight: bold; color: #0066cc;")
+        progetto_layout.addWidget(self.fcm_d_progetto_label, 4, 1)
+
+        progetto_layout.addWidget(QLabel("τ<sub>0d</sub> progetto:"), 4, 2)
+        self.tau0_d_progetto_label = QLabel("-")
+        self.tau0_d_progetto_label.setStyleSheet("font-weight: bold; color: #0066cc;")
+        progetto_layout.addWidget(self.tau0_d_progetto_label, 4, 3)
+
+        self.progetto_masonry_group.setLayout(progetto_layout)
+        self.progetto_masonry_group.setVisible(False)
+        layout.addWidget(self.progetto_masonry_group, 8, 0, 1, 5)
+
         group.setLayout(layout)
-        
+
         # Connessioni
         self.masonry_type.currentIndexChanged.connect(self.on_masonry_type_changed_advanced)
         self.knowledge_level.currentIndexChanged.connect(self.update_design_values)
         self.manual_params.toggled.connect(self.on_manual_params_toggled)
         self.fcm.valueChanged.connect(self.on_param_changed)
         self.tau0.valueChanged.connect(self.on_param_changed)
-        
+
+        # Connessioni per materiale progetto
+        self.different_material_progetto.toggled.connect(self._on_different_material_toggled)
+        self.masonry_type_progetto.currentIndexChanged.connect(self._on_masonry_progetto_changed)
+        self.fcm_progetto.valueChanged.connect(self._update_progetto_design_values)
+        self.tau0_progetto.valueChanged.connect(self._update_progetto_design_values)
+
         return group
+
+    def _on_different_material_toggled(self, checked):
+        """Mostra/nasconde gruppo materiale progetto"""
+        self.progetto_masonry_group.setVisible(checked)
+
+        if checked:
+            # Popola combo tipologia progetto
+            materials_list = self.materials_db.get_display_list()
+            self.masonry_type_progetto.blockSignals(True)
+            self.masonry_type_progetto.clear()
+            self.masonry_type_progetto.addItems(materials_list)
+
+            # Seleziona stesso materiale del Fatto
+            current_fatto = self.masonry_type.currentText()
+            index = self.masonry_type_progetto.findText(current_fatto)
+            if index >= 0:
+                self.masonry_type_progetto.setCurrentIndex(index)
+
+            self.masonry_type_progetto.blockSignals(False)
+            self._on_masonry_progetto_changed()
+
+    def _on_masonry_progetto_changed(self):
+        """Gestisce cambio tipologia muratura progetto"""
+        material_name = self.masonry_type_progetto.currentText()
+        if "[Personalizzato]" in material_name:
+            material_name = material_name.replace(" [Personalizzato]", "")
+
+        material = self.materials_db.get_material_by_name(material_name)
+
+        if material:
+            self.fcm_progetto.blockSignals(True)
+            self.tau0_progetto.blockSignals(True)
+            self.E_modulus_progetto.blockSignals(True)
+            self.G_modulus_progetto.blockSignals(True)
+
+            self.fcm_progetto.setValue(material.get('fcm', 2.0))
+            self.tau0_progetto.setValue(material.get('tau0', 0.074))
+            self.E_modulus_progetto.setValue(material.get('E', 1500))
+            self.G_modulus_progetto.setValue(material.get('G', 500))
+
+            self.fcm_progetto.blockSignals(False)
+            self.tau0_progetto.blockSignals(False)
+            self.E_modulus_progetto.blockSignals(False)
+            self.G_modulus_progetto.blockSignals(False)
+
+        self._update_progetto_design_values()
+
+    def _update_progetto_design_values(self):
+        """Aggiorna valori di progetto per muratura progetto"""
+        # Ottieni FC dal livello conoscenza
+        kl = self.knowledge_level.currentText()
+        if "LC1" in kl:
+            FC = 1.35
+        elif "LC2" in kl:
+            FC = 1.20
+        else:
+            FC = 1.00
+
+        gamma_m = 2.0
+
+        fcm_d = self.fcm_progetto.value() / (gamma_m * FC)
+        tau0_d = self.tau0_progetto.value() / (gamma_m * FC)
+
+        self.fcm_d_progetto_label.setText(f"{fcm_d:.2f} N/mm²")
+        self.tau0_d_progetto_label.setText(f"{tau0_d:.4f} N/mm²")
+
+    def _apply_improvement_factor(self):
+        """Applica fattore di miglioramento ai parametri Fatto"""
+        factor = self.improvement_factor.value()
+
+        # Prendi i valori dal Fatto e moltiplica
+        self.fcm_progetto.setValue(self.fcm.value() * factor)
+        self.tau0_progetto.setValue(self.tau0.value() * factor)
+        self.E_modulus_progetto.setValue(int(self.E_modulus.value() * factor))
+        self.G_modulus_progetto.setValue(int(self.G_modulus.value() * factor))
         
     def update_materials_list(self):
         """Aggiorna lista materiali nel ComboBox"""
@@ -1091,24 +1254,169 @@ class InputModule(QWidget):
         return group
         
     def create_constraints_group(self):
-        """Crea gruppo vincoli"""
-        group = QGroupBox("Condizioni di Vincolo")
+        """Crea gruppo vincoli e opzioni di calcolo avanzate"""
+        group = QGroupBox("Condizioni di Vincolo e Calcolo")
         layout = QGridLayout()
-        
+        row = 0
+
+        # === SEZIONE VINCOLI ===
         # Vincolo al piede
-        layout.addWidget(QLabel("Vincolo al piede:"), 0, 0)
+        layout.addWidget(QLabel("Vincolo al piede:"), row, 0)
         self.bottom_constraint = QComboBox()
         self.bottom_constraint.addItems(["Incastro", "Cerniera"])
-        layout.addWidget(self.bottom_constraint, 0, 1)
-        
+        layout.addWidget(self.bottom_constraint, row, 1)
+        row += 1
+
         # Vincolo in testa
-        layout.addWidget(QLabel("Vincolo in testa:"), 1, 0)
+        layout.addWidget(QLabel("Vincolo in testa:"), row, 0)
         self.top_constraint = QComboBox()
-        self.top_constraint.addItems(["Incastro (Grinter)", "Libero (Mensola)"])
-        layout.addWidget(self.top_constraint, 1, 1)
-        
+        self.top_constraint.addItems(["Incastro (Grinter)", "Libero (Mensola)", "Incastro scorrevole"])
+        layout.addWidget(self.top_constraint, row, 1)
+        row += 1
+
+        # Grado di incastro personalizzato (da Calcolus-CERCHIATURA)
+        layout.addWidget(QLabel("Grado incastro [%]:"), row, 0)
+        self.constraint_percentage = QSpinBox()
+        self.constraint_percentage.setRange(0, 100)
+        self.constraint_percentage.setValue(100)
+        self.constraint_percentage.setSuffix(" %")
+        self.constraint_percentage.setToolTip(
+            "Percentuale del grado di incastro (0-100%):\n"
+            "100% = incastro perfetto\n"
+            "0% = cerniera perfetta\n"
+            "Valori intermedi per vincoli parziali"
+        )
+        layout.addWidget(self.constraint_percentage, row, 1)
+        row += 1
+
+        # Separatore
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.HLine)
+        sep1.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(sep1, row, 0, 1, 2)
+        row += 1
+
+        # === SEZIONE MODELLO DI CALCOLO ===
+        # Schema statico (fattore k)
+        layout.addWidget(QLabel("Schema statico:"), row, 0)
+        self.static_scheme = QComboBox()
+        self.static_scheme.addItems([
+            "Doppio incastro (k=12)",
+            "Incastro-cerniera (k=6)",
+            "Mensola (k=3)",
+            "Personalizzato"
+        ])
+        self.static_scheme.setToolTip(
+            "Fattore k per rigidezza flessionale: K_flex = k × E × I / h³"
+        )
+        self.static_scheme.currentTextChanged.connect(self._on_static_scheme_changed)
+        layout.addWidget(self.static_scheme, row, 1)
+        row += 1
+
+        # Metodo calcolo altezza setti
+        layout.addWidget(QLabel("Altezza efficace setti:"), row, 0)
+        self.height_method = QComboBox()
+        self.height_method.addItems([
+            "A - Altezza di piano",
+            "B - Fasce rigide (max h fori)",
+            "C - Metodo Dolce (fasce semirigide)"
+        ])
+        self.height_method.setToolTip(
+            "A: Usa tutta l'altezza della parete\n"
+            "B: Usa la massima altezza dei fori\n"
+            "C: Metodo Dolce (valore intermedio)"
+        )
+        layout.addWidget(self.height_method, row, 1)
+        row += 1
+
+        # Angolo di diffusione per altezza maschi (da Calcolus-CERCHIATURA)
+        layout.addWidget(QLabel("Angolo diffusione [°]:"), row, 0)
+        self.diffusion_angle = QSpinBox()
+        self.diffusion_angle.setRange(0, 60)
+        self.diffusion_angle.setValue(0)
+        self.diffusion_angle.setSuffix(" °")
+        self.diffusion_angle.setToolTip(
+            "Angolo di diffusione dei carichi per il calcolo\n"
+            "dell'altezza efficace dei maschi murari.\n"
+            "0° = nessuna diffusione (conservativo)\n"
+            "30°-45° = valori tipici per muratura"
+        )
+        layout.addWidget(self.diffusion_angle, row, 1)
+        row += 1
+
+        # Separatore
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.HLine)
+        sep2.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(sep2, row, 0, 1, 2)
+        row += 1
+
+        # === SEZIONE MODELLO TAGLIO MURATURA ===
+        layout.addWidget(QLabel("Modello taglio muratura:"), row, 0)
+        self.shear_model = QComboBox()
+        self.shear_model.addItems([
+            "Minimo (scorrimento e diagonale)",
+            "Solo scorrimento (murature regolari)",
+            "Solo fessurazione diagonale (irregolari)"
+        ])
+        self.shear_model.setToolTip(
+            "Modello di rottura a taglio:\n"
+            "• Scorrimento: per murature regolari (τ = fvk0 + μ·σn)\n"
+            "• Fessurazione diagonale: per murature irregolari (Turnsek-Cacovic)\n"
+            "• Minimo: usa il valore più sfavorevole (raccomandato)"
+        )
+        layout.addWidget(self.shear_model, row, 1)
+        row += 1
+
+        # Separatore
+        sep3 = QFrame()
+        sep3.setFrameShape(QFrame.HLine)
+        sep3.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(sep3, row, 0, 1, 2)
+        row += 1
+
+        # === SEZIONE VERIFICHE AVANZATE ===
+        # Verifica drift SLC
+        self.drift_check = QCheckBox("Verifica drift SLC (Circ. 7/2019 C8.7.1.4)")
+        self.drift_check.setToolTip(
+            "Limiti drift:\n"
+            "• 0.4% h per rottura a taglio\n"
+            "• 0.6% h per rottura a pressoflessione"
+        )
+        layout.addWidget(self.drift_check, row, 0, 1, 2)
+        row += 1
+
+        # Calcolo spostamento ultimo automatico
+        self.auto_displacement = QCheckBox("Calcolo spostamento ultimo (NTC 7.8.2.2)")
+        self.auto_displacement.setToolTip(
+            "Calcola lo spostamento ultimo come minimo tra:\n"
+            "• Formula 7.8.2.2.1 (drift limite)\n"
+            "• Formula 7.8.2.2.2 (spostamento anelastico)"
+        )
+        self.auto_displacement.setChecked(True)
+        layout.addWidget(self.auto_displacement, row, 0, 1, 2)
+        row += 1
+
+        # Calcolo automatico duttilità
+        self.auto_ductility = QCheckBox("Duttilità automatica da materiale")
+        self.auto_ductility.setToolTip(
+            "Calcola automaticamente il coefficiente di duttilità\n"
+            "in base al tipo di muratura e al meccanismo di rottura"
+        )
+        self.auto_ductility.setChecked(True)
+        layout.addWidget(self.auto_ductility, row, 0, 1, 2)
+        row += 1
+
         group.setLayout(layout)
         return group
+
+    def _on_static_scheme_changed(self, text):
+        """Gestisce cambio schema statico"""
+        if text == "Personalizzato":
+            # Abilita il controllo percentuale
+            self.constraint_percentage.setEnabled(True)
+        else:
+            self.constraint_percentage.setEnabled(False)
         
     def connect_signals(self):
         """Connette i segnali"""
@@ -1341,6 +1649,16 @@ class InputModule(QWidget):
                 'G': self.G_modulus.value(),
                 'gamma': self.gamma.value()
             },
+            # Muratura Progetto (se diversa da Fatto)
+            'masonry_progetto': {
+                'enabled': self.different_material_progetto.isChecked(),
+                'type': self.masonry_type_progetto.currentText() if self.different_material_progetto.isChecked() else '',
+                'fcm': self.fcm_progetto.value() if self.different_material_progetto.isChecked() else 0,
+                'tau0': self.tau0_progetto.value() if self.different_material_progetto.isChecked() else 0,
+                'E': self.E_modulus_progetto.value() if self.different_material_progetto.isChecked() else 0,
+                'G': self.G_modulus_progetto.value() if self.different_material_progetto.isChecked() else 0,
+                'improvement_factor': self.improvement_factor.value() if self.different_material_progetto.isChecked() else 1.0
+            },
             'openings': self.wall_canvas.openings,
             'loads': {
                 'vertical': self.vertical_load.value(),
@@ -1348,7 +1666,15 @@ class InputModule(QWidget):
             },
             'constraints': {
                 'bottom': self.bottom_constraint.currentText(),
-                'top': self.top_constraint.currentText()
+                'top': self.top_constraint.currentText(),
+                'constraint_percentage': self.constraint_percentage.value(),
+                'height_method': self.height_method.currentText(),
+                'static_scheme': self.static_scheme.currentText(),
+                'diffusion_angle': self.diffusion_angle.value(),
+                'shear_model': self.shear_model.currentText(),
+                'drift_check': self.drift_check.isChecked(),
+                'auto_displacement': self.auto_displacement.isChecked(),
+                'auto_ductility': self.auto_ductility.isChecked()
             }
         }
         
@@ -1394,7 +1720,25 @@ class InputModule(QWidget):
         self.E_modulus.setValue(masonry.get('E', 1410))
         self.G_modulus.setValue(masonry.get('G', 470))
         self.gamma.setValue(masonry.get('gamma', 14.5))
-        
+
+        # Muratura Progetto (da Calcolus-CERCHIATURA)
+        masonry_progetto = data.get('masonry_progetto', {})
+        if masonry_progetto.get('enabled', False):
+            self.different_material_progetto.setChecked(True)
+            # Il toggle popolerà la combo
+            if masonry_progetto.get('type'):
+                index = self.masonry_type_progetto.findText(masonry_progetto['type'])
+                if index >= 0:
+                    self.masonry_type_progetto.setCurrentIndex(index)
+            self.fcm_progetto.setValue(masonry_progetto.get('fcm', 3.0))
+            self.tau0_progetto.setValue(masonry_progetto.get('tau0', 0.10))
+            self.E_modulus_progetto.setValue(masonry_progetto.get('E', 2000))
+            self.G_modulus_progetto.setValue(masonry_progetto.get('G', 670))
+            self.improvement_factor.setValue(masonry_progetto.get('improvement_factor', 1.5))
+            self._update_progetto_design_values()
+        else:
+            self.different_material_progetto.setChecked(False)
+
         # Aperture
         self.wall_canvas.openings = data.get('openings', [])
         self.wall_canvas.update()
@@ -1415,7 +1759,31 @@ class InputModule(QWidget):
             index = self.top_constraint.findText(constraints['top'])
             if index >= 0:
                 self.top_constraint.setCurrentIndex(index)
-                
+
+        # Nuove opzioni di calcolo (da analisi ProPT3 e Calcolus-CERCHIATURA)
+        if 'constraint_percentage' in constraints:
+            self.constraint_percentage.setValue(constraints['constraint_percentage'])
+        if 'height_method' in constraints:
+            index = self.height_method.findText(constraints['height_method'])
+            if index >= 0:
+                self.height_method.setCurrentIndex(index)
+        if 'static_scheme' in constraints:
+            index = self.static_scheme.findText(constraints['static_scheme'])
+            if index >= 0:
+                self.static_scheme.setCurrentIndex(index)
+        if 'diffusion_angle' in constraints:
+            self.diffusion_angle.setValue(constraints['diffusion_angle'])
+        if 'shear_model' in constraints:
+            index = self.shear_model.findText(constraints['shear_model'])
+            if index >= 0:
+                self.shear_model.setCurrentIndex(index)
+        if 'drift_check' in constraints:
+            self.drift_check.setChecked(constraints['drift_check'])
+        if 'auto_displacement' in constraints:
+            self.auto_displacement.setChecked(constraints['auto_displacement'])
+        if 'auto_ductility' in constraints:
+            self.auto_ductility.setChecked(constraints['auto_ductility'])
+
         # Aggiorna visualizzazione
         self.on_wall_changed()
         self.update_info()
@@ -1444,7 +1812,23 @@ class InputModule(QWidget):
         
         self.bottom_constraint.setCurrentIndex(0)
         self.top_constraint.setCurrentIndex(0)
-        
+        self.constraint_percentage.setValue(100)
+        self.height_method.setCurrentIndex(0)
+        self.static_scheme.setCurrentIndex(0)
+        self.diffusion_angle.setValue(0)
+        self.shear_model.setCurrentIndex(0)
+        self.drift_check.setChecked(False)
+        self.auto_displacement.setChecked(True)
+        self.auto_ductility.setChecked(True)
+
+        # Reset materiale Progetto
+        self.different_material_progetto.setChecked(False)
+        self.fcm_progetto.setValue(3.0)
+        self.tau0_progetto.setValue(0.10)
+        self.E_modulus_progetto.setValue(2000)
+        self.G_modulus_progetto.setValue(670)
+        self.improvement_factor.setValue(1.5)
+
         # Reset aperture
         self.wall_canvas.openings = []
         self.wall_canvas.update()

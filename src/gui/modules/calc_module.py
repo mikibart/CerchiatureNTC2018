@@ -478,7 +478,8 @@ class CalcModule(QWidget):
         self.results = {}
         self.export_btn.setEnabled(False)
         self.advanced_btn.setEnabled(False)
-        
+        self.run_frame_verif_btn.setEnabled(False)
+
         # Pulisce visualizzazioni precedenti
         self.reset_displays()
         
@@ -488,7 +489,10 @@ class CalcModule(QWidget):
         self.local_check_label.setText("-")
         self.stiffness_var_label.setText("-")
         self.resistance_var_label.setText("-")
-        
+        self.drift_slc_label.setText("-")
+        self.displacement_label.setText("-")
+        self.ductility_label.setText("-")
+
         self.original_k_label.setText("-")
         self.original_vt1_label.setText("-")
         self.original_vt2_label.setText("-")
@@ -502,14 +506,14 @@ class CalcModule(QWidget):
         self.modified_vmin_label.setText("-")
         
         self.notes_text.clear()
-        
+
         # Clear layouts
-        for layout in [self.maschi_layout, self.cerchiature_layout]:
+        for layout in [self.maschi_layout, self.cerchiature_layout, self.frame_verif_results_layout]:
             while layout.count():
                 child = layout.takeAt(0)
                 if child.widget():
                     child.widget().deleteLater()
-        
+
         # Clear grafici
         for canvas in [self.capacity_canvas, self.stiffness_canvas, 
                       self.resistance_canvas, self.frames_canvas]:
@@ -539,7 +543,19 @@ class CalcModule(QWidget):
         
         self.resistance_var_label = QLabel("-")
         verif_layout.addRow("Variazione resistenza:", self.resistance_var_label)
-        
+
+        # Verifica drift SLC (Circ. 7/2019 C8.7.1.4)
+        self.drift_slc_label = QLabel("-")
+        verif_layout.addRow("Verifica drift SLC:", self.drift_slc_label)
+
+        # Spostamento ultimo (NTC 7.8.2.2)
+        self.displacement_label = QLabel("-")
+        verif_layout.addRow("Spostamento ultimo:", self.displacement_label)
+
+        # Duttilità
+        self.ductility_label = QLabel("-")
+        verif_layout.addRow("Duttilità μ:", self.ductility_label)
+
         self.verification_group.setLayout(verif_layout)
         scroll_layout.addWidget(self.verification_group)
         
@@ -598,7 +614,31 @@ class CalcModule(QWidget):
         self.cerchiature_layout = QVBoxLayout()
         self.cerchiature_group.setLayout(self.cerchiature_layout)
         scroll_layout.addWidget(self.cerchiature_group)
-        
+
+        # Verifiche strutturali telaio (piattabanda/piedritti)
+        self.frame_verif_group = QGroupBox("Verifiche Strutturali Telaio")
+        self.frame_verif_layout = QVBoxLayout()
+
+        # Pulsante per eseguire verifiche dettagliate
+        self.run_frame_verif_btn = QPushButton("🔍 Esegui Verifiche Piattabanda/Piedritti")
+        self.run_frame_verif_btn.setToolTip(
+            "Esegue le verifiche strutturali dettagliate degli elementi del telaio:\n"
+            "• Piattabanda (architrave): flessione e taglio\n"
+            "• Piedritti (montanti): compressione, instabilità, presso-flessione"
+        )
+        self.run_frame_verif_btn.clicked.connect(self.run_frame_structural_verification)
+        self.run_frame_verif_btn.setEnabled(False)
+        self.frame_verif_layout.addWidget(self.run_frame_verif_btn)
+
+        # Container per risultati verifiche
+        self.frame_verif_results = QWidget()
+        self.frame_verif_results_layout = QVBoxLayout()
+        self.frame_verif_results.setLayout(self.frame_verif_results_layout)
+        self.frame_verif_layout.addWidget(self.frame_verif_results)
+
+        self.frame_verif_group.setLayout(self.frame_verif_layout)
+        scroll_layout.addWidget(self.frame_verif_group)
+
         # Note e avvertimenti
         self.notes_group = QGroupBox("Note e Avvertimenti")
         notes_layout = QVBoxLayout()
@@ -646,41 +686,50 @@ class CalcModule(QWidget):
         panel.setLayout(layout)
         return panel
 
-    def _calculate_frame_contribution(self, opening: Dict, rinforzo: Dict, 
+    def _calculate_frame_contribution(self, opening: Dict, rinforzo: Dict,
                                      wall_data: Dict, opening_id: str) -> Dict:
         """
         Metodo unificato per calcolare il contributo di una cerchiatura
         Gestisce tutti i tipi di rinforzo in modo robusto
-        
+
         Args:
             opening: dati apertura
             rinforzo: dati rinforzo
             wall_data: dati parete
             opening_id: identificativo apertura
-            
+
         Returns:
             Dict con risultati standardizzati
         """
+        # Inizializza risultato default PRIMA del try per evitare UnboundLocalError
+        frame_result = {
+            'K_frame': 0,
+            'M_max': 0,
+            'V_max': 0,
+            'N_max': 0,
+            'V_resistance': 0,
+            'materiale': '',
+            'tipo': '',
+            'error': None,
+            'warnings': []
+        }
+
+        # Verifica che rinforzo non sia None
+        if rinforzo is None:
+            frame_result['error'] = 'Nessun rinforzo definito'
+            return frame_result
+
         try:
             materiale = rinforzo.get('materiale', '')
             tipo = rinforzo.get('tipo', '')
-            
+
+            # Aggiorna frame_result con materiale e tipo
+            frame_result['materiale'] = materiale
+            frame_result['tipo'] = tipo
+
             # Log per debug
             logger.info(f"Calcolo cerchiatura {opening_id}: materiale={materiale}, tipo={tipo}")
-            
-            # Inizializza risultato default
-            frame_result = {
-                'K_frame': 0,
-                'M_max': 0,
-                'V_max': 0,
-                'N_max': 0,
-                'V_resistance': 0,  # NUOVO: resistenza a taglio del telaio
-                'materiale': materiale,
-                'tipo': tipo,
-                'error': None,
-                'warnings': []
-            }
-            
+
             # Flag per determinare se procedere con calcolo standard
             use_standard_calc = True
             
@@ -973,11 +1022,13 @@ class CalcModule(QWidget):
             K_cerchiature_esistenti = 0
             V_cerchiature_esistenti = 0
             for i, opening in enumerate(existing_openings_with_existing_reinforcement):
-                if 'rinforzo' in opening and opening['rinforzo']:
-                    if opening['rinforzo'].get('esistente', False):
+                rinforzo = opening.get('rinforzo')
+                # Verifica che rinforzo sia valido e esistente
+                if rinforzo and isinstance(rinforzo, dict) and rinforzo.get('tipo'):
+                    if rinforzo.get('esistente', False):
                         opening_id = f"A{i+1}_esistente"
                         frame_result = self._calculate_frame_contribution(
-                            opening, opening['rinforzo'], wall_data, opening_id
+                            opening, rinforzo, wall_data, opening_id
                         )
                         K_cerchiature_esistenti += frame_result.get('K_frame', 0)
                         V_cerchiature_esistenti += frame_result.get('V_resistance', 0)
@@ -1018,14 +1069,16 @@ class CalcModule(QWidget):
             logger.info(f"Aperture con rinforzo: {len(openings_with_reinforcement)}")
             
             for i, opening in enumerate(openings_with_reinforcement):
-                if 'rinforzo' in opening:
+                rinforzo = opening.get('rinforzo')
+                # Verifica che rinforzo sia valido (non None e con dati)
+                if rinforzo and isinstance(rinforzo, dict) and rinforzo.get('tipo'):
                     opening_id = f"A{i+1}"
-                    
+
                     # Usa il nuovo metodo unificato e robusto
                     frame_result = self._calculate_frame_contribution(
-                        opening, 
-                        opening['rinforzo'], 
-                        wall_data, 
+                        opening,
+                        rinforzo,
+                        wall_data,
                         opening_id
                     )
                     
@@ -1106,6 +1159,34 @@ class CalcModule(QWidget):
                 'FC': FC,
                 'frame_results': frame_results
             }
+
+            # === VERIFICHE AVANZATE ===
+            constraints = self.project_data.get('constraints', {})
+
+            # Calcolo duttilità automatica
+            if constraints.get('auto_ductility', False):
+                masonry_type = masonry_data.get('type', 'Muratura generica')
+                ductility_result = self.masonry_calc.calculate_automatic_ductility(
+                    masonry_type, V_t1_mod, V_t3_mod
+                )
+                self.results['ductility'] = ductility_result
+                logger.info(f"Duttilità automatica: μ={ductility_result['mu']:.2f}, "
+                           f"meccanismo={ductility_result['mechanism']}")
+
+            # Calcolo spostamento ultimo
+            if constraints.get('auto_displacement', False):
+                # Determina meccanismo critico
+                if V_t1_mod <= V_t3_mod:
+                    mechanism = 'shear'
+                else:
+                    mechanism = 'flexure'
+
+                displacement_result = self.masonry_calc.calculate_ultimate_displacement(
+                    wall_data, masonry_data, K_mod, V_min_mod, mechanism
+                )
+                self.results['displacement'] = displacement_result
+                logger.info(f"Spostamento ultimo: d_u={displacement_result['d_u']*1000:.1f} mm, "
+                           f"formula={displacement_result['formula_used']}")
             
             # Calcola risultati per maschi murari
             self.calculate_maschi_results(wall_data, openings_with_reinforcement)
@@ -1122,7 +1203,8 @@ class CalcModule(QWidget):
             self.status_label.setText("Calcolo completato")
             self.export_btn.setEnabled(True)
             self.advanced_btn.setEnabled(True)
-            
+            self.run_frame_verif_btn.setEnabled(True)  # Abilita verifiche strutturali telaio
+
             # Emetti segnale con risultati
             self.calculation_done.emit(self.results)
             
@@ -1171,7 +1253,49 @@ class CalcModule(QWidget):
             self.resistance_var_label.setText(
                 f'<span style="color: red;">{res_var:.1f}% (> 20%)</span>'
             )
-            
+
+        # Verifica drift SLC (Circ. 7/2019 C8.7.1.4)
+        drift_check = self.project_data.get('constraints', {}).get('drift_check', False)
+        if drift_check:
+            drift_result = self._calculate_drift_verification()
+            if drift_result:
+                if drift_result['verified']:
+                    self.drift_slc_label.setText(
+                        f'<span style="color: green;">✓ {drift_result["drift"]:.2f}% ≤ {drift_result["limit"]:.1f}% ({drift_result["mechanism"]})</span>'
+                    )
+                else:
+                    self.drift_slc_label.setText(
+                        f'<span style="color: red;">✗ {drift_result["drift"]:.2f}% > {drift_result["limit"]:.1f}% ({drift_result["mechanism"]})</span>'
+                    )
+            else:
+                self.drift_slc_label.setText('<span style="color: gray;">N/D</span>')
+        else:
+            self.drift_slc_label.setText('<span style="color: gray;">Non richiesta</span>')
+
+        # Visualizza spostamento ultimo (NTC 7.8.2.2)
+        if 'displacement' in self.results:
+            disp = self.results['displacement']
+            d_u_mm = disp['d_u'] * 1000
+            d_y_mm = disp['d_y'] * 1000
+            formula = disp['formula_used']
+            self.displacement_label.setText(
+                f"<b>{d_u_mm:.1f} mm</b> (d_y={d_y_mm:.1f} mm, {formula})"
+            )
+        else:
+            self.displacement_label.setText('<span style="color: gray;">Non calcolato</span>')
+
+        # Visualizza duttilità
+        if 'ductility' in self.results:
+            duct = self.results['ductility']
+            mu = duct['mu']
+            mechanism = duct['mechanism']
+            mech_it = 'taglio' if mechanism == 'shear' else 'presso-flessione'
+            self.ductility_label.setText(
+                f"<b>μ = {mu:.2f}</b> (meccanismo: {mech_it})"
+            )
+        else:
+            self.ductility_label.setText('<span style="color: gray;">Non calcolata</span>')
+
         # Stato di fatto
         orig = self.results['original']
         self.original_k_label.setText(f"{orig['K']:.1f} kN/m")
@@ -1216,7 +1340,7 @@ class CalcModule(QWidget):
         
         for i, (opening_id, frame_data) in enumerate(frame_results.items()):
             opening = openings_with_reinforcement[i] if i < len(openings_with_reinforcement) else {}
-            rinforzo = opening.get('rinforzo', {})
+            rinforzo = opening.get('rinforzo') or {}  # Gestisce anche rinforzo=None
             
             # Crea widget per dettagli cerchiatura
             frame_widget = QGroupBox(f"Apertura {opening_id}")
@@ -1304,7 +1428,316 @@ class CalcModule(QWidget):
         """Mostra dialog verifica calandratura"""
         dialog = BendingVerificationDialog(self, opening_data, profile_name, steel_grade)
         dialog.exec_()
-            
+
+    def _calculate_drift_verification(self) -> Optional[Dict]:
+        """
+        Calcola la verifica del drift allo SLC secondo Circ. 7/2019 C8.7.1.4
+
+        Limiti di drift:
+        - 0.4% h per rottura a taglio
+        - 0.6% h per rottura a pressoflessione
+
+        Returns:
+            Dict con: drift, limit, mechanism, verified
+            oppure None se dati insufficienti
+        """
+        if not self.results:
+            return None
+
+        try:
+            # Estrai parametri dalla parete
+            wall_data = self.project_data.get('wall', {})
+            h_wall = wall_data.get('height', 0) / 100  # cm -> m
+
+            if h_wall <= 0:
+                return None
+
+            # Determina il meccanismo di rottura critico dallo stato di progetto
+            mod = self.results.get('modified', {})
+            V_t1 = mod.get('V_t1', 0)
+            V_t3 = mod.get('V_t3', 0)
+            V_min = mod.get('V_min', 0)
+            K_tot = mod.get('K', 1)  # Rigidezza totale
+
+            # Determina meccanismo
+            if V_t1 <= V_t3:
+                mechanism = 'Taglio'
+                drift_limit = 0.4  # 0.4% per taglio
+            else:
+                mechanism = 'Pressoflessione'
+                drift_limit = 0.6  # 0.6% per pressoflessione
+
+            # Calcola spostamento ultimo: δ_u = V_min / K
+            if K_tot > 0:
+                delta_u = V_min / K_tot  # m (V in kN, K in kN/m)
+                # Drift = δ / h × 100 (in %)
+                drift = (delta_u / h_wall) * 100
+            else:
+                drift = 0
+
+            # Verifica
+            verified = drift <= drift_limit
+
+            return {
+                'drift': drift,
+                'limit': drift_limit,
+                'mechanism': mechanism,
+                'verified': verified,
+                'delta_u': delta_u * 1000  # mm
+            }
+
+        except Exception as e:
+            logger.error(f"Errore calcolo drift: {e}")
+            return None
+
+    def run_frame_structural_verification(self):
+        """
+        Esegue le verifiche strutturali dettagliate del telaio:
+        - Piattabanda (architrave): flessione e taglio
+        - Piedritti (montanti): compressione, instabilità, presso-flessione
+        """
+        if not self.results or not self.project_data:
+            QMessageBox.warning(self, "Attenzione",
+                "Eseguire prima il calcolo generale.")
+            return
+
+        # Pulisci risultati precedenti
+        while self.frame_verif_results_layout.count():
+            child = self.frame_verif_results_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        # Ottieni dati necessari
+        wall_data = self.project_data.get('wall', {})
+        openings = self.project_data.get('openings', [])
+        masonry = self.project_data.get('masonry', {})
+
+        if not openings:
+            QMessageBox.information(self, "Informazione",
+                "Nessuna apertura presente nel progetto.")
+            return
+
+        # Crea istanza verificatore
+        verifier = NTC2018Verifier()
+
+        # Dati muratura per verifiche
+        masonry_data = {
+            'thickness': wall_data.get('thickness', 30),
+            'weight': masonry.get('weight', 18),  # kN/m³
+        }
+
+        all_verified = True
+
+        for i, opening in enumerate(openings):
+            # Salta aperture esistenti (non hanno cerchiatura)
+            if opening.get('existing', False):
+                continue
+
+            rinforzo = opening.get('rinforzo') or {}
+            if not rinforzo or not rinforzo.get('tipo') or rinforzo.get('tipo', '').lower() == 'nessuno':
+                continue
+
+            # Crea widget per questa apertura
+            opening_widget = QGroupBox(f"Apertura {opening.get('name', f'A{i+1}')}")
+            opening_layout = QVBoxLayout()
+
+            # Dati apertura per verifica
+            opening_data = {
+                'width': opening.get('width', 120),
+                'height': opening.get('height', 220),
+                'x': opening.get('x', 0),
+                'y': opening.get('y', 0),
+                'wall_height': wall_data.get('height', 300),
+            }
+
+            # Ottieni dati profilo
+            architrave = rinforzo.get('architrave', {})
+            piedritti = rinforzo.get('piedritti', {})
+
+            profilo_arch = architrave.get('profilo', 'HEA 120')
+            profilo_piedr = piedritti.get('profilo', profilo_arch)
+            n_profili = architrave.get('n_profili', 1)
+
+            # Stima proprietà profilo (da database o valori tipici)
+            profile_data = self._get_profile_properties(profilo_arch)
+            jamb_profile_data = self._get_profile_properties(profilo_piedr)
+
+            # === VERIFICA PIATTABANDA ===
+            lintel_result = verifier.verify_lintel(opening_data, profile_data, masonry_data)
+
+            lintel_widget = QFrame()
+            lintel_widget.setFrameStyle(QFrame.StyledPanel)
+            lintel_layout = QFormLayout()
+
+            lintel_header = QLabel(f"<b>PIATTABANDA ({profilo_arch} × {n_profili})</b>")
+            lintel_layout.addRow(lintel_header)
+
+            lintel_layout.addRow("Luce efficace:",
+                QLabel(f"{lintel_result['L_eff']:.0f} cm"))
+            lintel_layout.addRow("Carico distribuito:",
+                QLabel(f"{lintel_result['q_total']:.2f} kN/m"))
+            lintel_layout.addRow("Momento M_Ed:",
+                QLabel(f"{lintel_result['M_Ed']:.2f} kNm"))
+            lintel_layout.addRow("Momento M_Rd:",
+                QLabel(f"{lintel_result['M_Rd']:.2f} kNm"))
+
+            flex_color = "green" if lintel_result['flex_ok'] else "red"
+            flex_symbol = "✓" if lintel_result['flex_ok'] else "✗"
+            lintel_layout.addRow("Verifica flessione:",
+                QLabel(f'<span style="color:{flex_color}">{flex_symbol} M_Ed/M_Rd = {lintel_result["flex_ratio"]:.2f}</span>'))
+
+            lintel_layout.addRow("Taglio V_Ed:",
+                QLabel(f"{lintel_result['V_Ed']:.2f} kN"))
+            lintel_layout.addRow("Taglio V_Rd:",
+                QLabel(f"{lintel_result['V_Rd']:.2f} kN"))
+
+            shear_color = "green" if lintel_result['shear_ok'] else "red"
+            shear_symbol = "✓" if lintel_result['shear_ok'] else "✗"
+            lintel_layout.addRow("Verifica taglio:",
+                QLabel(f'<span style="color:{shear_color}">{shear_symbol} V_Ed/V_Rd = {lintel_result["shear_ratio"]:.2f}</span>'))
+
+            lintel_widget.setLayout(lintel_layout)
+            opening_layout.addWidget(lintel_widget)
+
+            if not lintel_result['verified']:
+                all_verified = False
+
+            # === VERIFICA PIEDRITTI ===
+            # Forza sismica stimata (da risultati calcolo)
+            seismic_force = 0
+            if self.results:
+                V_min_mod = self.results.get('modified', {}).get('V_min', 0)
+                seismic_force = V_min_mod * 0.3  # Stima 30% per singola apertura
+
+            jamb_result = verifier.verify_jamb(opening_data, jamb_profile_data,
+                                               masonry_data, seismic_force=seismic_force)
+
+            jamb_widget = QFrame()
+            jamb_widget.setFrameStyle(QFrame.StyledPanel)
+            jamb_layout = QFormLayout()
+
+            jamb_header = QLabel(f"<b>PIEDRITTI ({profilo_piedr} × {n_profili})</b>")
+            jamb_layout.addRow(jamb_header)
+
+            jamb_layout.addRow("Altezza libera:",
+                QLabel(f"{jamb_result['H_eff']:.0f} cm"))
+            jamb_layout.addRow("Compressione N_Ed:",
+                QLabel(f"{jamb_result['N_Ed']:.2f} kN"))
+            jamb_layout.addRow("Compressione N_Rd:",
+                QLabel(f"{jamb_result['N_Rd']:.2f} kN"))
+
+            compr_color = "green" if jamb_result['compr_ok'] else "red"
+            compr_symbol = "✓" if jamb_result['compr_ok'] else "✗"
+            jamb_layout.addRow("Verifica compressione:",
+                QLabel(f'<span style="color:{compr_color}">{compr_symbol} N_Ed/N_Rd = {jamb_result["compr_ratio"]:.2f}</span>'))
+
+            jamb_layout.addRow("Snellezza λ:",
+                QLabel(f"{jamb_result['lambda_slender']:.1f}"))
+            jamb_layout.addRow("Snellezza relativa:",
+                QLabel(f"{jamb_result['lambda_rel']:.2f}"))
+            jamb_layout.addRow("Coefficiente χ:",
+                QLabel(f"{jamb_result['chi']:.3f}"))
+            jamb_layout.addRow("N_b,Rd (instabilità):",
+                QLabel(f"{jamb_result['N_b_Rd']:.2f} kN"))
+
+            buck_color = "green" if jamb_result['buckling_ok'] else "red"
+            buck_symbol = "✓" if jamb_result['buckling_ok'] else "✗"
+            jamb_layout.addRow("Verifica instabilità:",
+                QLabel(f'<span style="color:{buck_color}">{buck_symbol} N_Ed/N_b,Rd = {jamb_result["buckling_ratio"]:.2f}</span>'))
+
+            if jamb_result['M_Ed'] > 0:
+                jamb_layout.addRow("Momento M_Ed:",
+                    QLabel(f"{jamb_result['M_Ed']:.2f} kNm"))
+                comb_color = "green" if jamb_result['combined_ok'] else "red"
+                comb_symbol = "✓" if jamb_result['combined_ok'] else "✗"
+                jamb_layout.addRow("Verifica combinata:",
+                    QLabel(f'<span style="color:{comb_color}">{comb_symbol} Ratio = {jamb_result["combined_ratio"]:.2f}</span>'))
+
+            jamb_widget.setLayout(jamb_layout)
+            opening_layout.addWidget(jamb_widget)
+
+            if not jamb_result['verified']:
+                all_verified = False
+
+            # Esito complessivo apertura
+            overall_ok = lintel_result['verified'] and jamb_result['verified']
+            overall_color = "green" if overall_ok else "red"
+            overall_text = "✓ VERIFICATO" if overall_ok else "✗ NON VERIFICATO"
+
+            overall_label = QLabel(f'<b style="color:{overall_color}; font-size: 12pt;">{overall_text}</b>')
+            overall_label.setAlignment(Qt.AlignCenter)
+            opening_layout.addWidget(overall_label)
+
+            opening_widget.setLayout(opening_layout)
+            self.frame_verif_results_layout.addWidget(opening_widget)
+
+        # Riepilogo finale
+        if all_verified:
+            summary = QLabel('<b style="color: green; font-size: 14pt;">✓ TUTTE LE VERIFICHE STRUTTURALI SODDISFATTE</b>')
+        else:
+            summary = QLabel('<b style="color: red; font-size: 14pt;">✗ ALCUNE VERIFICHE NON SODDISFATTE</b>')
+        summary.setAlignment(Qt.AlignCenter)
+        self.frame_verif_results_layout.addWidget(summary)
+
+    def _get_profile_properties(self, profile_name: str) -> Dict:
+        """
+        Restituisce le proprietà meccaniche di un profilo.
+        Valori tipici per profili HE, IPE, UPN.
+        """
+        # Database semplificato profili comuni
+        profiles_db = {
+            # HEA
+            'HEA 100': {'A': 21.2, 'Ix': 349, 'Wpl': 83.0, 'A_shear': 6.0, 'fy': 235},
+            'HEA 120': {'A': 25.3, 'Ix': 606, 'Wpl': 119, 'A_shear': 7.6, 'fy': 235},
+            'HEA 140': {'A': 31.4, 'Ix': 1033, 'Wpl': 173, 'A_shear': 9.7, 'fy': 235},
+            'HEA 160': {'A': 38.8, 'Ix': 1673, 'Wpl': 245, 'A_shear': 12.2, 'fy': 235},
+            'HEA 180': {'A': 45.3, 'Ix': 2510, 'Wpl': 325, 'A_shear': 14.4, 'fy': 235},
+            'HEA 200': {'A': 53.8, 'Ix': 3692, 'Wpl': 429, 'A_shear': 17.0, 'fy': 235},
+            'HEA 220': {'A': 64.3, 'Ix': 5410, 'Wpl': 568, 'A_shear': 20.5, 'fy': 235},
+            'HEA 240': {'A': 76.8, 'Ix': 7763, 'Wpl': 744, 'A_shear': 24.6, 'fy': 235},
+            # HEB
+            'HEB 100': {'A': 26.0, 'Ix': 450, 'Wpl': 104, 'A_shear': 8.0, 'fy': 235},
+            'HEB 120': {'A': 34.0, 'Ix': 864, 'Wpl': 165, 'A_shear': 11.0, 'fy': 235},
+            'HEB 140': {'A': 43.0, 'Ix': 1509, 'Wpl': 245, 'A_shear': 14.0, 'fy': 235},
+            'HEB 160': {'A': 54.3, 'Ix': 2492, 'Wpl': 354, 'A_shear': 17.6, 'fy': 235},
+            'HEB 180': {'A': 65.3, 'Ix': 3831, 'Wpl': 481, 'A_shear': 21.2, 'fy': 235},
+            'HEB 200': {'A': 78.1, 'Ix': 5696, 'Wpl': 642, 'A_shear': 25.4, 'fy': 235},
+            # IPE
+            'IPE 100': {'A': 10.3, 'Ix': 171, 'Wpl': 39.4, 'A_shear': 4.7, 'fy': 235},
+            'IPE 120': {'A': 13.2, 'Ix': 318, 'Wpl': 60.7, 'A_shear': 6.3, 'fy': 235},
+            'IPE 140': {'A': 16.4, 'Ix': 541, 'Wpl': 88.3, 'A_shear': 8.1, 'fy': 235},
+            'IPE 160': {'A': 20.1, 'Ix': 869, 'Wpl': 124, 'A_shear': 10.1, 'fy': 235},
+            'IPE 180': {'A': 23.9, 'Ix': 1317, 'Wpl': 166, 'A_shear': 12.3, 'fy': 235},
+            'IPE 200': {'A': 28.5, 'Ix': 1943, 'Wpl': 221, 'A_shear': 15.0, 'fy': 235},
+            'IPE 220': {'A': 33.4, 'Ix': 2772, 'Wpl': 285, 'A_shear': 17.6, 'fy': 235},
+            'IPE 240': {'A': 39.1, 'Ix': 3892, 'Wpl': 367, 'A_shear': 21.0, 'fy': 235},
+            # UPN
+            'UPN 100': {'A': 13.5, 'Ix': 206, 'Wpl': 47.4, 'A_shear': 5.1, 'fy': 235},
+            'UPN 120': {'A': 17.0, 'Ix': 364, 'Wpl': 69.2, 'A_shear': 6.6, 'fy': 235},
+            'UPN 140': {'A': 20.4, 'Ix': 605, 'Wpl': 98.8, 'A_shear': 8.0, 'fy': 235},
+            'UPN 160': {'A': 24.0, 'Ix': 925, 'Wpl': 132, 'A_shear': 9.6, 'fy': 235},
+            'UPN 180': {'A': 28.0, 'Ix': 1350, 'Wpl': 171, 'A_shear': 11.2, 'fy': 235},
+            'UPN 200': {'A': 32.2, 'Ix': 1910, 'Wpl': 218, 'A_shear': 13.0, 'fy': 235},
+        }
+
+        # Cerca profilo esatto o simile
+        profile_upper = profile_name.upper().strip()
+
+        # Prova match esatto
+        if profile_upper in profiles_db:
+            return profiles_db[profile_upper]
+
+        # Prova normalizzando il nome
+        normalized = profile_upper.replace(' ', '').replace('-', '')
+        for key, value in profiles_db.items():
+            key_norm = key.replace(' ', '').replace('-', '')
+            if key_norm == normalized:
+                return value
+
+        # Valori di default (HEA 120)
+        logger.warning(f"Profilo '{profile_name}' non trovato, uso valori default HEA 120")
+        return {'A': 25.3, 'Ix': 606, 'Wpl': 119, 'A_shear': 7.6, 'fy': 235}
+
     def generate_notes(self):
         """Genera note e avvertimenti con dettagli avanzati"""
         notes = []
@@ -1332,7 +1765,22 @@ class CalcModule(QWidget):
                         "• Valutare un intervento di miglioramento/adeguamento")
         else:
             notes.append("\n✓ L'intervento può essere classificato come LOCALE")
-            
+
+        # Verifica drift SLC se richiesta
+        drift_check = self.project_data.get('constraints', {}).get('drift_check', False)
+        if drift_check:
+            drift_result = self._calculate_drift_verification()
+            if drift_result:
+                notes.append(f"\n📐 VERIFICA DRIFT SLC (Circ. 7/2019 C8.7.1.4):")
+                notes.append(f"  Meccanismo critico: {drift_result['mechanism']}")
+                notes.append(f"  Drift calcolato: {drift_result['drift']:.3f}%")
+                notes.append(f"  Limite ammesso: {drift_result['limit']:.1f}%")
+                notes.append(f"  Spostamento ultimo: {drift_result['delta_u']:.1f} mm")
+                if drift_result['verified']:
+                    notes.append("  ✓ Verifica SODDISFATTA")
+                else:
+                    notes.append("  ✗ Verifica NON SODDISFATTA - Aumentare rigidezza")
+
         # Resistenza critica
         orig = self.results['original']
         mod = self.results['modified']
@@ -1401,9 +1849,9 @@ class CalcModule(QWidget):
         for opening in openings_with_reinforcement:
             if opening.get('type') == 'Ad arco':
                 n_archi += 1
-                
-            if 'rinforzo' in opening:
-                rinforzo = opening['rinforzo']
+
+            rinforzo = opening.get('rinforzo')
+            if rinforzo and isinstance(rinforzo, dict):
                 if rinforzo.get('materiale') == 'acciaio':
                     n_acciaio += 1
                     # Conta profili multipli
@@ -1462,9 +1910,9 @@ class CalcModule(QWidget):
         # Note su vincoli avanzati
         has_advanced_constraints = False
         for opening in openings_with_reinforcement:
-            if 'rinforzo' in opening:
-                rinforzo = opening['rinforzo']
-                if 'vincoli' in rinforzo and 'avanzate' in rinforzo['vincoli']:
+            rinforzo = opening.get('rinforzo')
+            if rinforzo and isinstance(rinforzo, dict):
+                if 'vincoli' in rinforzo and 'avanzate' in rinforzo.get('vincoli', {}):
                     has_advanced_constraints = True
                     break
                     
@@ -1626,15 +2074,15 @@ class CalcModule(QWidget):
                                     opening = openings[i]
                                     f.write(f"  Tipo apertura: {opening.get('type', 'Rettangolare')}\n")
                                     
-                                    if 'rinforzo' in opening:
-                                        rinforzo = opening['rinforzo']
+                                    rinforzo = opening.get('rinforzo')
+                                    if rinforzo and isinstance(rinforzo, dict):
                                         f.write(f"  Tipo rinforzo: {rinforzo.get('tipo', 'N.D.')}\n")
                                         f.write(f"  Materiale: {rinforzo.get('materiale', 'N.D.')}\n")
-                                        
+
                                         if rinforzo.get('materiale') == 'acciaio':
                                             arch = rinforzo.get('architrave', {})
                                             f.write(f"  Architrave: {arch.get('n_profili', 1)}x {arch.get('profilo', 'N.D.')}\n")
-                                            
+
                                             if 'piedritti' in rinforzo:
                                                 pied = rinforzo['piedritti']
                                                 f.write(f"  Piedritti: {pied.get('n_profili', 1)}x {pied.get('profilo', 'N.D.')}\n")
@@ -1661,20 +2109,22 @@ class CalcModule(QWidget):
                                                     f.write(f"      - {warning}\n")
                                         
                                         # Report calandratura per officina
-                                        if opening.get('type') == 'Ad arco' and 'rinforzo' in opening:
+                                        rinforzo_arco = opening.get('rinforzo')
+                                        if opening.get('type') == 'Ad arco' and rinforzo_arco and isinstance(rinforzo_arco, dict):
                                             report = self.arch_manager.generate_bending_report(
-                                                opening, opening['rinforzo']
+                                                opening, rinforzo_arco
                                             )
                                             f.write("\n" + report + "\n")
-                                                
+
                                 f.write(f"  K_cerchiatura: {frame_data.get('K_frame', 0):.1f} kN/m\n")
-                                
+
                                 # NUOVO: Resistenza cerchiatura
                                 if frame_data.get('V_resistance', 0) > 0:
                                     f.write(f"  V_resistenza: {frame_data.get('V_resistance', 0):.1f} kN\n")
                                     # Info orientamento profilo
-                                    if 'rinforzo' in opening and opening['rinforzo'].get('materiale') == 'acciaio':
-                                        arch = opening['rinforzo'].get('architrave', {})
+                                    rinforzo_res = opening.get('rinforzo')
+                                    if rinforzo_res and isinstance(rinforzo_res, dict) and rinforzo_res.get('materiale') == 'acciaio':
+                                        arch = rinforzo_res.get('architrave', {})
                                         if arch.get('ruotato', False):
                                             f.write("  Nota: Profilo ruotato 90° (asse debole)\n")
                                 
@@ -1712,7 +2162,10 @@ class CalcModule(QWidget):
         self.local_check_label.setText("-")
         self.stiffness_var_label.setText("-")
         self.resistance_var_label.setText("-")
-        
+        self.drift_slc_label.setText("-")
+        self.displacement_label.setText("-")
+        self.ductility_label.setText("-")
+
         self.original_k_label.setText("-")
         self.original_vt1_label.setText("-")
         self.original_vt2_label.setText("-")
@@ -1805,11 +2258,12 @@ class AdvancedDetailsDialog(QDialog):
         openings = openings_module.get('openings', [])
         
         for i, opening in enumerate(openings):
-            if 'rinforzo' in opening and 'vincoli' in opening['rinforzo']:
+            rinforzo = opening.get('rinforzo')
+            if rinforzo and isinstance(rinforzo, dict) and 'vincoli' in rinforzo:
                 group = QGroupBox(f"Apertura A{i+1}")
                 group_layout = QFormLayout()
-                
-                vincoli = opening['rinforzo']['vincoli']
+
+                vincoli = rinforzo.get('vincoli', {})
                 
                 # Vincoli base
                 if 'base_sx' in vincoli:

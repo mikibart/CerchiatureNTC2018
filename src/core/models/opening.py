@@ -28,6 +28,129 @@ class FrameType(Enum):
     FULL_FRAME = 1       # Telaio completo (piattabanda + piedritti + base)
 
 
+class FillType(Enum):
+    """Tipo di riempimento apertura (da Calcolus-CERCHIATURA)"""
+    NONE = 0                    # Nessun riempimento (vano aperto)
+    SOLID_BRICK = 1             # Mattoni pieni
+    HOLLOW_BRICK = 2            # Mattoni forati
+    CONCRETE_BLOCK = 3          # Blocchi cls
+    LATERIZIO_BLOCK = 4         # Blocchi laterizio
+    DRYWALL = 5                 # Cartongesso
+    GLASS_BLOCK = 6             # Vetrocemento
+    INFILL_PANEL = 7            # Pannello tamponamento
+    EXISTING_MASONRY = 8        # Muratura esistente (chiusura storica)
+
+
+@dataclass
+class FillMaterial:
+    """
+    Proprietà del materiale di riempimento per calcolo strutturale.
+    Basato su analisi Calcolus-CERCHIATURA (RiempimentoApertura).
+    """
+    fill_type: FillType = FillType.NONE
+    thickness: float = 0.0           # cm - spessore riempimento
+
+    # Proprietà meccaniche per calcolo contributo rigidezza
+    E: float = 0.0                   # MPa - modulo elastico
+    G: float = 0.0                   # MPa - modulo di taglio
+    fk: float = 0.0                  # MPa - resistenza caratteristica
+    tau0: float = 0.0                # MPa - resistenza a taglio
+
+    # Ammorsamento con muratura esistente
+    has_connection: bool = False     # Ammorsamento laterale
+    connection_depth: float = 0.0    # cm - profondità ammorsamento
+    connection_efficiency: float = 0.5  # Efficienza collegamento (0-1)
+
+    # Contributo al calcolo (0-100%)
+    stiffness_contribution: float = 0.0   # % contributo rigidezza
+    resistance_contribution: float = 0.0  # % contributo resistenza
+
+    @classmethod
+    def get_default_properties(cls, fill_type: FillType) -> 'FillMaterial':
+        """
+        Restituisce proprietà meccaniche di default per tipo riempimento.
+        Valori indicativi da NTC 2018 e letteratura tecnica.
+        """
+        defaults = {
+            FillType.NONE: cls(fill_type=FillType.NONE),
+            FillType.SOLID_BRICK: cls(
+                fill_type=FillType.SOLID_BRICK,
+                E=1500, G=500, fk=2.4, tau0=0.06,
+                stiffness_contribution=80, resistance_contribution=70
+            ),
+            FillType.HOLLOW_BRICK: cls(
+                fill_type=FillType.HOLLOW_BRICK,
+                E=1000, G=400, fk=1.0, tau0=0.04,
+                stiffness_contribution=50, resistance_contribution=40
+            ),
+            FillType.CONCRETE_BLOCK: cls(
+                fill_type=FillType.CONCRETE_BLOCK,
+                E=2000, G=800, fk=3.0, tau0=0.08,
+                stiffness_contribution=90, resistance_contribution=80
+            ),
+            FillType.LATERIZIO_BLOCK: cls(
+                fill_type=FillType.LATERIZIO_BLOCK,
+                E=1200, G=480, fk=1.5, tau0=0.05,
+                stiffness_contribution=60, resistance_contribution=50
+            ),
+            FillType.DRYWALL: cls(
+                fill_type=FillType.DRYWALL,
+                E=50, G=20, fk=0.1, tau0=0.01,
+                stiffness_contribution=5, resistance_contribution=0
+            ),
+            FillType.GLASS_BLOCK: cls(
+                fill_type=FillType.GLASS_BLOCK,
+                E=500, G=200, fk=0.5, tau0=0.02,
+                stiffness_contribution=30, resistance_contribution=10
+            ),
+            FillType.INFILL_PANEL: cls(
+                fill_type=FillType.INFILL_PANEL,
+                E=200, G=80, fk=0.3, tau0=0.02,
+                stiffness_contribution=20, resistance_contribution=5
+            ),
+            FillType.EXISTING_MASONRY: cls(
+                fill_type=FillType.EXISTING_MASONRY,
+                E=1500, G=500, fk=2.0, tau0=0.06,
+                stiffness_contribution=70, resistance_contribution=60
+            ),
+        }
+        return defaults.get(fill_type, cls(fill_type=FillType.NONE))
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serializza in dizionario"""
+        return {
+            'fill_type': self.fill_type.value,
+            'thickness': self.thickness,
+            'E': self.E,
+            'G': self.G,
+            'fk': self.fk,
+            'tau0': self.tau0,
+            'has_connection': self.has_connection,
+            'connection_depth': self.connection_depth,
+            'connection_efficiency': self.connection_efficiency,
+            'stiffness_contribution': self.stiffness_contribution,
+            'resistance_contribution': self.resistance_contribution
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'FillMaterial':
+        """Deserializza da dizionario"""
+        fill_type = FillType(data.get('fill_type', 0))
+        return cls(
+            fill_type=fill_type,
+            thickness=data.get('thickness', 0.0),
+            E=data.get('E', 0.0),
+            G=data.get('G', 0.0),
+            fk=data.get('fk', 0.0),
+            tau0=data.get('tau0', 0.0),
+            has_connection=data.get('has_connection', False),
+            connection_depth=data.get('connection_depth', 0.0),
+            connection_efficiency=data.get('connection_efficiency', 0.5),
+            stiffness_contribution=data.get('stiffness_contribution', 0.0),
+            resistance_contribution=data.get('resistance_contribution', 0.0)
+        )
+
+
 class ProfileType(Enum):
     """Tipologia profilato"""
     STEEL_PROFILE = 11001  # Profilato in acciaio
@@ -108,6 +231,9 @@ class Opening:
     jamb_reinforcement: ConcreteReinforcement = None
     base_reinforcement: ConcreteReinforcement = None
 
+    # Riempimento apertura (da Calcolus-CERCHIATURA)
+    fill_material: FillMaterial = None
+
     # Risultati calcolo (popolati dopo analisi)
     beam_elements: List[Dict] = field(default_factory=list)
     verification_results: Dict = field(default_factory=dict)
@@ -132,6 +258,8 @@ class Opening:
             self.jamb_reinforcement = ConcreteReinforcement()
         if self.base_reinforcement is None:
             self.base_reinforcement = ConcreteReinforcement()
+        if self.fill_material is None:
+            self.fill_material = FillMaterial()
 
     @classmethod
     def from_simple(cls, width: float, height: float, x: float, y: float,
@@ -276,6 +404,7 @@ class Opening:
                 'stirrup_diameter': self.base_reinforcement.stirrup_diameter,
                 'stirrup_spacing': self.base_reinforcement.stirrup_spacing
             },
+            'fill_material': self.fill_material.to_dict() if self.fill_material else None,
             'beam_elements': self.beam_elements,
             'verification_results': self.verification_results
         }
@@ -328,6 +457,10 @@ class Opening:
         jamb_reinf = load_reinforcement(data.get('jamb_reinforcement', {}))
         base_reinf = load_reinforcement(data.get('base_reinforcement', {}))
 
+        # Riempimento apertura
+        fill_data = data.get('fill_material')
+        fill_material = FillMaterial.from_dict(fill_data) if fill_data else FillMaterial()
+
         # Enums
         op_type_val = data.get('opening_type', 'rectangular')
         opening_type = OpeningType(op_type_val) if op_type_val in [e.value for e in OpeningType] else OpeningType.RECTANGULAR
@@ -345,7 +478,8 @@ class Opening:
             is_door=data.get('is_door', False),
             lintel_reinforcement=lintel_reinf,
             jamb_reinforcement=jamb_reinf,
-            base_reinforcement=base_reinf
+            base_reinforcement=base_reinf,
+            fill_material=fill_material
         )
         opening.beam_elements = data.get('beam_elements', [])
         opening.verification_results = data.get('verification_results', {})

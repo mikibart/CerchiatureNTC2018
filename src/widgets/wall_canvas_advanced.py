@@ -770,7 +770,9 @@ class AdvancedWallCanvas(QWidget):
                 if base_tipo and 'nessun' not in base_tipo.lower():
                     painter.setBrush(QBrush(fill_color.darker(110)))
 
-                    base_x1, base_y1 = self.wall_to_screen(x - t, y - t/2)
+                    # Coordinate base: dalla quota y dell'apertura fino a t sotto
+                    # La base ha la stessa altezza (t) degli altri elementi del telaio
+                    base_x1, base_y1 = self.wall_to_screen(x - t, y - t)
                     base_x2, base_y2 = self.wall_to_screen(x + w + t, y)
 
                     base_rect = QRect(
@@ -778,6 +780,15 @@ class AdvancedWallCanvas(QWidget):
                         int(base_x2 - base_x1), int(base_y1 - base_y2)
                     )
                     painter.drawRect(base_rect)
+
+                    # Etichetta profilo base
+                    if 'trave' in rinforzo['base']:
+                        profilo_base = rinforzo['base']['trave'].get('profilo', '')
+                        if profilo_base:
+                            painter.setPen(Qt.white)
+                            painter.setFont(QFont('Arial', 7))
+                            painter.drawText(base_rect, Qt.AlignCenter, profilo_base)
+                            painter.setPen(QPen(border_color, 2))
 
         # === INDICATORE TIPO RINFORZO ===
         # Piccola icona nell'angolo

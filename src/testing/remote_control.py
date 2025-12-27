@@ -376,6 +376,8 @@ class RemoteControlServer(QObject):
                     'knowledge_level': input_module.knowledge_level.currentText() if hasattr(input_module, 'knowledge_level') else '',
                     'fcm': input_module.fcm.value() if hasattr(input_module, 'fcm') else 0,
                     'tau0': input_module.tau0.value() if hasattr(input_module, 'tau0') else 0,
+                    'E': input_module.E_modulus.value() if hasattr(input_module, 'E_modulus') else 0,
+                    'G': input_module.G_modulus.value() if hasattr(input_module, 'G_modulus') else 0,
                 },
                 'openings': openings_data,
                 'openings_count': len(openings_data),
@@ -456,6 +458,22 @@ class RemoteControlServer(QObject):
                         f"Livelli validi: {', '.join(valid_levels)}"
                     )
                 input_module.knowledge_level.setCurrentIndex(index)
+
+            # Parametri meccanici personalizzati (da importazione PT3)
+            if 'fcm' in params and hasattr(input_module, 'fcm'):
+                input_module.fcm.setValue(float(params['fcm']))
+
+            if 'tau0' in params and hasattr(input_module, 'tau0'):
+                input_module.tau0.setValue(float(params['tau0']))
+
+            if 'E' in params and hasattr(input_module, 'E_modulus'):
+                input_module.E_modulus.setValue(int(params['E']))
+
+            if 'G' in params and hasattr(input_module, 'G_modulus'):
+                input_module.G_modulus.setValue(int(params['G']))
+
+            if 'gamma_m' in params and hasattr(input_module, 'gamma'):
+                input_module.gamma.setValue(float(params['gamma_m']))
 
             return {'masonry_set': True}
 

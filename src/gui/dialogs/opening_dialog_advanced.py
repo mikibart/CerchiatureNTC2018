@@ -413,18 +413,18 @@ class AdvancedOpeningDialog(QDialog):
         return widget
         
     def create_closure_tab(self):
-        """Tab per chiusura vani esistenti"""
+        """Tab per chiusura vani esistenti (riempimento apertura)"""
         widget = QWidget()
-        layout = QFormLayout()
-        
+        layout = QVBoxLayout()
+
         # Attiva chiusura
-        self.is_closure = QCheckBox("Chiusura di vano esistente")
-        layout.addRow("", self.is_closure)
-        
+        self.is_closure = QCheckBox("Chiusura di vano esistente (riempimento)")
+        layout.addWidget(self.is_closure)
+
         # Gruppo parametri chiusura
-        self.closure_group = QGroupBox("Parametri Chiusura")
+        self.closure_group = QGroupBox("Parametri Chiusura/Riempimento")
         closure_layout = QFormLayout()
-        
+
         # Tipo di chiusura
         self.closure_type = QComboBox()
         self.closure_type.addItems([
@@ -435,45 +435,176 @@ class AdvancedOpeningDialog(QDialog):
             "Altro"
         ])
         closure_layout.addRow("Tipo chiusura:", self.closure_type)
-        
-        # Materiale chiusura
+
+        # Materiale chiusura (mappato a FillType)
         self.closure_material = QComboBox()
         self.closure_material.addItems([
-            "Mattoni pieni",
-            "Mattoni forati",
-            "Blocchi cls",
-            "Blocchi laterizio",
-            "Cartongesso",
-            "Vetrocemento",
-            "Altro"
+            "Mattoni pieni",        # FillType.SOLID_BRICK = 1
+            "Mattoni forati",       # FillType.HOLLOW_BRICK = 2
+            "Blocchi cls",          # FillType.CONCRETE_BLOCK = 3
+            "Blocchi laterizio",    # FillType.LATERIZIO_BLOCK = 4
+            "Cartongesso",          # FillType.DRYWALL = 5
+            "Vetrocemento",         # FillType.GLASS_BLOCK = 6
+            "Pannello tamponamento",# FillType.INFILL_PANEL = 7
+            "Muratura esistente"    # FillType.EXISTING_MASONRY = 8
         ])
+        self.closure_material.currentIndexChanged.connect(self._on_closure_material_changed)
         closure_layout.addRow("Materiale:", self.closure_material)
-        
+
         # Spessore chiusura
         self.closure_thickness = QSpinBox()
         self.closure_thickness.setRange(5, 50)
         self.closure_thickness.setValue(12)
         self.closure_thickness.setSuffix(" cm")
         closure_layout.addRow("Spessore:", self.closure_thickness)
-        
+
+        # Separatore
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        closure_layout.addRow(separator)
+
+        # === PROPRIETÀ STRUTTURALI (da Calcolus-CERCHIATURA) ===
+        struct_label = QLabel("<b>Proprietà strutturali riempimento</b>")
+        closure_layout.addRow(struct_label)
+
+        # Modulo elastico E
+        self.fill_E = QSpinBox()
+        self.fill_E.setRange(0, 5000)
+        self.fill_E.setValue(1500)
+        self.fill_E.setSuffix(" MPa")
+        self.fill_E.setToolTip("Modulo elastico del materiale di riempimento")
+        closure_layout.addRow("Modulo E:", self.fill_E)
+
+        # Modulo taglio G
+        self.fill_G = QSpinBox()
+        self.fill_G.setRange(0, 2000)
+        self.fill_G.setValue(500)
+        self.fill_G.setSuffix(" MPa")
+        self.fill_G.setToolTip("Modulo di taglio del materiale di riempimento")
+        closure_layout.addRow("Modulo G:", self.fill_G)
+
+        # Resistenza fk
+        self.fill_fk = QDoubleSpinBox()
+        self.fill_fk.setRange(0, 10)
+        self.fill_fk.setValue(2.4)
+        self.fill_fk.setSingleStep(0.1)
+        self.fill_fk.setSuffix(" MPa")
+        self.fill_fk.setToolTip("Resistenza caratteristica a compressione")
+        closure_layout.addRow("Resistenza fk:", self.fill_fk)
+
+        # Resistenza taglio tau0
+        self.fill_tau0 = QDoubleSpinBox()
+        self.fill_tau0.setRange(0, 1)
+        self.fill_tau0.setValue(0.06)
+        self.fill_tau0.setSingleStep(0.01)
+        self.fill_tau0.setDecimals(3)
+        self.fill_tau0.setSuffix(" MPa")
+        self.fill_tau0.setToolTip("Resistenza a taglio iniziale")
+        closure_layout.addRow("Resistenza τ₀:", self.fill_tau0)
+
+        # Separatore
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.HLine)
+        separator2.setFrameShadow(QFrame.Sunken)
+        closure_layout.addRow(separator2)
+
+        # === AMMORSAMENTO ===
+        amm_label = QLabel("<b>Ammorsamento e contributo</b>")
+        closure_layout.addRow(amm_label)
+
         # Ammorsamento
         self.has_connection = QCheckBox("Ammorsamento con muratura esistente")
         self.has_connection.setChecked(True)
+        self.has_connection.toggled.connect(self._on_connection_changed)
         closure_layout.addRow("", self.has_connection)
-        
+
         # Profondità ammorsamento
         self.connection_depth = QSpinBox()
         self.connection_depth.setRange(5, 30)
         self.connection_depth.setValue(12)
         self.connection_depth.setSuffix(" cm")
         closure_layout.addRow("Prof. ammorsamento:", self.connection_depth)
-        
+
+        # Efficienza collegamento
+        self.connection_efficiency = QSpinBox()
+        self.connection_efficiency.setRange(0, 100)
+        self.connection_efficiency.setValue(50)
+        self.connection_efficiency.setSuffix(" %")
+        self.connection_efficiency.setToolTip("Efficienza del collegamento con muratura esistente (0-100%)")
+        closure_layout.addRow("Efficienza collegamento:", self.connection_efficiency)
+
+        # Separatore
+        separator3 = QFrame()
+        separator3.setFrameShape(QFrame.HLine)
+        separator3.setFrameShadow(QFrame.Sunken)
+        closure_layout.addRow(separator3)
+
+        # === CONTRIBUTI CALCOLO ===
+        contrib_label = QLabel("<b>Contributo al calcolo parete</b>")
+        closure_layout.addRow(contrib_label)
+
+        # Contributo rigidezza
+        self.stiffness_contribution = QSpinBox()
+        self.stiffness_contribution.setRange(0, 100)
+        self.stiffness_contribution.setValue(80)
+        self.stiffness_contribution.setSuffix(" %")
+        self.stiffness_contribution.setToolTip("Percentuale della rigidezza del riempimento che viene considerata")
+        closure_layout.addRow("Contributo rigidezza:", self.stiffness_contribution)
+
+        # Contributo resistenza
+        self.resistance_contribution = QSpinBox()
+        self.resistance_contribution.setRange(0, 100)
+        self.resistance_contribution.setValue(70)
+        self.resistance_contribution.setSuffix(" %")
+        self.resistance_contribution.setToolTip("Percentuale della resistenza del riempimento che viene considerata")
+        closure_layout.addRow("Contributo resistenza:", self.resistance_contribution)
+
         self.closure_group.setLayout(closure_layout)
         self.closure_group.setEnabled(False)
-        layout.addRow(self.closure_group)
-        
+        layout.addWidget(self.closure_group)
+
+        # Info box
+        info_label = QLabel(
+            "<i>Nota: Il riempimento contribuisce parzialmente alla rigidezza e resistenza "
+            "della parete, in base al tipo di materiale e qualità dell'ammorsamento.</i>"
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #666; font-size: 10px;")
+        layout.addWidget(info_label)
+
+        layout.addStretch()
         widget.setLayout(layout)
         return widget
+
+    def _on_closure_material_changed(self, index):
+        """Aggiorna proprietà strutturali in base al materiale selezionato"""
+        # Valori default per ogni tipo di materiale (da FillMaterial.get_default_properties)
+        defaults = {
+            0: (1500, 500, 2.4, 0.06, 80, 70),   # Mattoni pieni
+            1: (1000, 400, 1.0, 0.04, 50, 40),   # Mattoni forati
+            2: (2000, 800, 3.0, 0.08, 90, 80),   # Blocchi cls
+            3: (1200, 480, 1.5, 0.05, 60, 50),   # Blocchi laterizio
+            4: (50, 20, 0.1, 0.01, 5, 0),        # Cartongesso
+            5: (500, 200, 0.5, 0.02, 30, 10),    # Vetrocemento
+            6: (200, 80, 0.3, 0.02, 20, 5),      # Pannello tamponamento
+            7: (1500, 500, 2.0, 0.06, 70, 60),   # Muratura esistente
+        }
+        if index in defaults:
+            E, G, fk, tau0, K_pct, V_pct = defaults[index]
+            self.fill_E.setValue(E)
+            self.fill_G.setValue(G)
+            self.fill_fk.setValue(fk)
+            self.fill_tau0.setValue(tau0)
+            self.stiffness_contribution.setValue(K_pct)
+            self.resistance_contribution.setValue(V_pct)
+
+    def _on_connection_changed(self, checked):
+        """Abilita/disabilita campi ammorsamento"""
+        self.connection_depth.setEnabled(checked)
+        self.connection_efficiency.setEnabled(checked)
+        if not checked:
+            self.connection_efficiency.setValue(30)  # Efficienza ridotta senza ammorsamento
         
     def connect_signals(self):
         """Connette tutti i segnali"""
@@ -750,6 +881,19 @@ class AdvancedOpeningDialog(QDialog):
             
         # Dati chiusura
         if self.is_closure.isChecked():
+            # Mappa indice materiale a FillType
+            material_to_fill_type = {
+                0: 1,  # Mattoni pieni -> SOLID_BRICK
+                1: 2,  # Mattoni forati -> HOLLOW_BRICK
+                2: 3,  # Blocchi cls -> CONCRETE_BLOCK
+                3: 4,  # Blocchi laterizio -> LATERIZIO_BLOCK
+                4: 5,  # Cartongesso -> DRYWALL
+                5: 6,  # Vetrocemento -> GLASS_BLOCK
+                6: 7,  # Pannello tamponamento -> INFILL_PANEL
+                7: 8,  # Muratura esistente -> EXISTING_MASONRY
+            }
+            fill_type = material_to_fill_type.get(self.closure_material.currentIndex(), 0)
+
             data['closure_data'] = {
                 'is_closure': True,
                 'type': self.closure_type.currentText(),
@@ -758,7 +902,34 @@ class AdvancedOpeningDialog(QDialog):
                 'has_connection': self.has_connection.isChecked(),
                 'connection_depth': self.connection_depth.value() if self.has_connection.isChecked() else 0
             }
-            
+
+            # fill_material per integrazione con modello Opening
+            data['fill_material'] = {
+                'fill_type': fill_type,
+                'thickness': self.closure_thickness.value(),
+                'E': self.fill_E.value(),
+                'G': self.fill_G.value(),
+                'fk': self.fill_fk.value(),
+                'tau0': self.fill_tau0.value(),
+                'has_connection': self.has_connection.isChecked(),
+                'connection_depth': self.connection_depth.value() if self.has_connection.isChecked() else 0,
+                'connection_efficiency': self.connection_efficiency.value() / 100.0,
+                'stiffness_contribution': self.stiffness_contribution.value(),
+                'resistance_contribution': self.resistance_contribution.value()
+            }
+        else:
+            # Nessun riempimento
+            data['fill_material'] = {
+                'fill_type': 0,  # NONE
+                'thickness': 0,
+                'E': 0, 'G': 0, 'fk': 0, 'tau0': 0,
+                'has_connection': False,
+                'connection_depth': 0,
+                'connection_efficiency': 0,
+                'stiffness_contribution': 0,
+                'resistance_contribution': 0
+            }
+
         return data
         
     def load_data(self, data):
@@ -837,6 +1008,30 @@ class AdvancedOpeningDialog(QDialog):
             self.closure_thickness.setValue(closure.get('thickness', 12))
             self.has_connection.setChecked(closure.get('has_connection', True))
             self.connection_depth.setValue(closure.get('connection_depth', 12))
+
+        # Dati fill_material (se presenti, sovrascrivono closure_data)
+        if 'fill_material' in data:
+            fill = data['fill_material']
+            fill_type = fill.get('fill_type', 0)
+
+            if fill_type > 0:  # C'è un riempimento
+                self.is_closure.setChecked(True)
+                # Mappa FillType a indice combobox
+                fill_type_to_index = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7}
+                idx = fill_type_to_index.get(fill_type, 0)
+                self.closure_material.setCurrentIndex(idx)
+
+                self.closure_thickness.setValue(fill.get('thickness', 12))
+                self.fill_E.setValue(int(fill.get('E', 1500)))
+                self.fill_G.setValue(int(fill.get('G', 500)))
+                self.fill_fk.setValue(fill.get('fk', 2.4))
+                self.fill_tau0.setValue(fill.get('tau0', 0.06))
+                self.has_connection.setChecked(fill.get('has_connection', False))
+                self.connection_depth.setValue(fill.get('connection_depth', 12))
+                eff = fill.get('connection_efficiency', 0.5)
+                self.connection_efficiency.setValue(int(eff * 100) if eff <= 1 else int(eff))
+                self.stiffness_contribution.setValue(int(fill.get('stiffness_contribution', 80)))
+                self.resistance_contribution.setValue(int(fill.get('resistance_contribution', 70)))
 
         # Aggiorna visibilità campi in base al tipo caricato
         current_type = self.opening_type.currentIndex()

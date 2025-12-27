@@ -91,13 +91,25 @@ class RemoteClient:
             'thickness': thickness
         })
 
-    def set_masonry(self, masonry_type: str, gamma_m: float = 2.0, fc: float = 1.35) -> Dict:
-        """Imposta tipo muratura."""
-        return self.send_command('set_masonry', {
+    def set_masonry(self, masonry_type: str, gamma_m: float = 2.0, fc: float = 1.35,
+                    fcm: float = None, tau0: float = None,
+                    E: float = None, G: float = None) -> Dict:
+        """Imposta tipo muratura con parametri meccanici opzionali."""
+        params = {
             'type': masonry_type,
             'gamma_m': gamma_m,
             'fc': fc
-        })
+        }
+        # Aggiungi parametri meccanici se specificati
+        if fcm is not None:
+            params['fcm'] = fcm
+        if tau0 is not None:
+            params['tau0'] = tau0
+        if E is not None:
+            params['E'] = E
+        if G is not None:
+            params['G'] = G
+        return self.send_command('set_masonry', params)
 
     def add_opening(self, x: int, y: int, width: int, height: int,
                     opening_type: str = 'Rettangolare', existing: bool = False) -> Dict:
