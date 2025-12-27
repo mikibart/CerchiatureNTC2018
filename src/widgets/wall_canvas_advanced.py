@@ -10,21 +10,35 @@ from PyQt5.QtGui import *
 import math
 
 class AdvancedWallCanvas(QWidget):
-    """Canvas avanzato per disegno muro con aperture complesse"""
-    
+    """Canvas avanzato per disegno muro con aperture complesse e interattività"""
+
     # Segnali
     opening_selected = pyqtSignal(int)
-    
+    opening_moved = pyqtSignal(int)  # Emesso quando un'apertura viene spostata
+    opening_double_clicked = pyqtSignal(int)  # Emesso per modifica apertura
+    add_opening_requested = pyqtSignal(int, int)  # Emesso per aggiungere apertura (x, y)
+    mouse_position_changed = pyqtSignal(int, int)  # Posizione mouse in coordinate muro
+
     def __init__(self):
         super().__init__()
         self.setMinimumSize(400, 300)
         self.setMouseTracking(True)
-        
+        self.setFocusPolicy(Qt.StrongFocus)  # Per catturare eventi tastiera
+
         # Dati
         self.wall_data = None
         self.openings = []
         self.selected_opening = -1
-        
+
+        # Interattività
+        self.is_dragging = False
+        self.drag_start_pos = None
+        self.drag_opening_original_pos = None
+        self.hover_opening = -1  # Apertura sotto il cursore
+        self.interactive_mode = True  # Abilita/disabilita interattività
+        self.show_coordinates = True  # Mostra coordinate durante drag
+        self.current_drag_coords = None  # Coordinate correnti durante drag (x, y)
+
         # Visualizzazione
         self.scale = 1.0
         self.offset_x = 50
@@ -33,6 +47,7 @@ class AdvancedWallCanvas(QWidget):
         self.show_dimensions = True
         self.show_opening_labels = True
         self.show_niche_depth = True
+        self.show_hover_highlight = True  # Evidenzia apertura sotto cursore
         
         # Colori estesi
         self.colors = {
@@ -52,8 +67,18 @@ class AdvancedWallCanvas(QWidget):
             'text': QColor(0, 0, 0),
             'selection': QColor(0, 120, 215),
             'arch_construction': QColor(150, 150, 150),
-            'center_point': QColor(255, 0, 0)
+            'center_point': QColor(255, 0, 0),
+            'hover': QColor(100, 200, 255, 100),  # Colore hover semi-trasparente
+            'drag_preview': QColor(0, 120, 215, 150),  # Colore anteprima drag
+            'coord_bg': QColor(0, 0, 0, 200),  # Sfondo tooltip coordinate
+            'coord_text': QColor(255, 255, 255),  # Testo tooltip coordinate
+            'reinforcement_steel': QColor(70, 130, 180),  # Colore cerchiatura acciaio
+            'reinforcement_ca': QColor(139, 90, 43),  # Colore cerchiatura C.A.
+            'reinforcement_border': QColor(30, 60, 90)  # Bordo cerchiatura
         }
+
+        # Mostra cerchiature
+        self.show_reinforcements = True
         
         # Font
         self.font_small = QFont('Arial', 9)
@@ -178,14 +203,18 @@ class AdvancedWallCanvas(QWidget):
         # Disegna quote
         if self.show_dimensions:
             self.draw_dimensions(painter)
-            
+
         # Disegna maschi murari
         self.draw_maschi_labels(painter)
+
+        # Disegna coordinate durante il drag
+        if self.is_dragging and self.show_coordinates and self.current_drag_coords:
+            self.draw_drag_coordinates(painter)
         
     def draw_opening_advanced(self, painter, opening, index):
-        """Disegna apertura con supporto forme avanzate"""
+        """Disegna apertura con supporto forme avanzate e interattività"""
         opening_type = opening.get('type', 'Rettangolare')
-        
+
         # Determina colori base
         if opening.get('closure_data'):
             fill_color = self.colors['closure']
@@ -199,13 +228,22 @@ class AdvancedWallCanvas(QWidget):
         else:
             fill_color = self.colors['opening_new']
             border_color = self.colors['opening_new_border']
-            
+
         # Se selezionata
         if index == self.selected_opening:
             border_color = self.colors['selection']
             pen_width = 3
+        # Se in hover
+        elif index == self.hover_opening and self.show_hover_highlight:
+            border_color = self.colors['hover']
+            pen_width = 3
         else:
             pen_width = 2
+
+        # Durante il drag, mostra anteprima semi-trasparente
+        if self.is_dragging and index == self.selected_opening:
+            fill_color = QColor(fill_color)
+            fill_color.setAlpha(180)
             
         # Disegna in base al tipo
         if opening_type == 'Rettangolare':
@@ -222,7 +260,11 @@ class AdvancedWallCanvas(QWidget):
             self.draw_niche_opening(painter, opening, fill_color, border_color, pen_width)
         elif opening_type == 'Chiusura vano esistente':
             self.draw_closure_opening(painter, opening, fill_color, border_color, pen_width)
-            
+
+        # Disegna cerchiatura/rinforzo se presente
+        if self.show_reinforcements and 'rinforzo' in opening and opening['rinforzo']:
+            self.draw_reinforcement(painter, opening)
+
         # Etichetta apertura
         if self.show_opening_labels:
             self.draw_opening_label(painter, opening, index)
@@ -591,7 +633,326 @@ class AdvancedWallCanvas(QWidget):
             painter.setPen(self.colors['text'])
             rect = QRect(int(x1), int(y2), int(x2 - x1), int(y1 - y2))
             painter.drawText(rect, Qt.AlignCenter, closure_data.get('material', 'Chiusura'))
-            
+
+    def draw_reinforcement(self, painter, opening):
+        """Disegna cerchiatura/rinforzo attorno all'apertura"""
+        rinforzo = opening.get('rinforzo', {})
+        if not rinforzo:
+            return
+
+        # Coordinate apertura
+        x = opening['x']
+        y = opening['y']
+        w = opening['width']
+        h = opening['height']
+
+        # Spessore profilo in cm (approssimato)
+        profile_thickness = 12  # cm tipico per HEA/HEB
+
+        # Rinforzo esistente o nuovo?
+        is_existing = rinforzo.get('esistente', False)
+
+        # Colore in base al materiale
+        materiale = rinforzo.get('materiale', 'acciaio')
+        if materiale == 'acciaio':
+            fill_color = self.colors['reinforcement_steel']
+        else:  # C.A.
+            fill_color = self.colors['reinforcement_ca']
+
+        # Se esistente, colore più chiaro
+        if is_existing:
+            fill_color = fill_color.lighter(130)
+
+        border_color = self.colors['reinforcement_border']
+
+        # Stile bordo: tratteggiato se esistente
+        if is_existing:
+            pen = QPen(border_color, 2, Qt.DashLine)
+        else:
+            pen = QPen(border_color, 2)
+
+        painter.setPen(pen)
+        painter.setBrush(QBrush(fill_color))
+
+        tipo = rinforzo.get('tipo', '')
+
+        # Verifica se è un rinforzo calandrato/curvo
+        is_calandrato = 'calandrato' in tipo.lower() or 'arco' in tipo.lower()
+
+        # Se calandrato e apertura circolare/arco, disegna profilo curvo
+        if is_calandrato and 'arco' in rinforzo:
+            self.draw_curved_reinforcement(painter, opening, rinforzo, fill_color, border_color, is_existing)
+            return
+
+        # Determina cosa disegnare
+        has_architrave = True  # Sempre presente
+        has_piedritti = 'telaio' in tipo.lower() or 'piedritti' in rinforzo
+
+        # Ottieni info profilo per spessore più accurato
+        if 'architrave' in rinforzo and isinstance(rinforzo['architrave'], dict):
+            profilo = rinforzo['architrave'].get('profilo', '')
+            # Estrai altezza profilo (es. "HEA 200" -> 200mm = 20cm)
+            try:
+                parts = profilo.split()
+                if len(parts) >= 2:
+                    profile_h = int(parts[1])
+                    profile_thickness = profile_h / 10  # mm to cm
+            except:
+                pass
+
+        # Spessore minimo visibile
+        profile_thickness = max(8, min(profile_thickness, 25))
+        t = profile_thickness
+
+        # === DISEGNA ARCHITRAVE (traverso superiore) ===
+        # Rettangolo sopra l'apertura
+        arch_x1, arch_y1 = self.wall_to_screen(x - t/2, y + h)
+        arch_x2, arch_y2 = self.wall_to_screen(x + w + t/2, y + h + t)
+
+        arch_rect = QRect(
+            int(arch_x1), int(arch_y2),
+            int(arch_x2 - arch_x1), int(arch_y1 - arch_y2)
+        )
+        painter.drawRect(arch_rect)
+
+        # Testo profilo sull'architrave
+        if 'architrave' in rinforzo and isinstance(rinforzo['architrave'], dict):
+            profilo = rinforzo['architrave'].get('profilo', '')
+            n_profili = rinforzo['architrave'].get('n_profili', 1)
+            if profilo:
+                painter.setPen(Qt.white)
+                painter.setFont(QFont('Arial', 8, QFont.Bold))
+                label = f"{n_profili}x{profilo}" if n_profili > 1 else profilo
+                painter.drawText(arch_rect, Qt.AlignCenter, label)
+                painter.setPen(QPen(border_color, 2))
+
+        # === DISEGNA PIEDRITTI (montanti laterali) ===
+        if has_piedritti:
+            painter.setBrush(QBrush(fill_color))
+
+            # Piedritto sinistro
+            pied_sx_x1, pied_sx_y1 = self.wall_to_screen(x - t, y)
+            pied_sx_x2, pied_sx_y2 = self.wall_to_screen(x, y + h)
+
+            pied_sx_rect = QRect(
+                int(pied_sx_x1), int(pied_sx_y2),
+                int(pied_sx_x2 - pied_sx_x1), int(pied_sx_y1 - pied_sx_y2)
+            )
+            painter.drawRect(pied_sx_rect)
+
+            # Piedritto destro
+            pied_dx_x1, pied_dx_y1 = self.wall_to_screen(x + w, y)
+            pied_dx_x2, pied_dx_y2 = self.wall_to_screen(x + w + t, y + h)
+
+            pied_dx_rect = QRect(
+                int(pied_dx_x1), int(pied_dx_y2),
+                int(pied_dx_x2 - pied_dx_x1), int(pied_dx_y1 - pied_dx_y2)
+            )
+            painter.drawRect(pied_dx_rect)
+
+            # Label piedritti (se profilo diverso)
+            if 'piedritti' in rinforzo and isinstance(rinforzo['piedritti'], dict):
+                profilo_pied = rinforzo['piedritti'].get('profilo', '')
+                if profilo_pied:
+                    painter.setPen(Qt.white)
+                    painter.setFont(QFont('Arial', 7))
+                    # Scrivi verticalmente sui piedritti
+                    painter.save()
+                    painter.translate(int((pied_sx_x1 + pied_sx_x2) / 2),
+                                      int((pied_sx_y1 + pied_sx_y2) / 2))
+                    painter.rotate(-90)
+                    painter.drawText(-20, 4, profilo_pied)
+                    painter.restore()
+
+            # === DISEGNA BASE (se prevista) ===
+            if 'base' in rinforzo and isinstance(rinforzo['base'], dict):
+                base_tipo = rinforzo['base'].get('tipo', '')
+                if base_tipo and 'nessun' not in base_tipo.lower():
+                    painter.setBrush(QBrush(fill_color.darker(110)))
+
+                    base_x1, base_y1 = self.wall_to_screen(x - t, y - t/2)
+                    base_x2, base_y2 = self.wall_to_screen(x + w + t, y)
+
+                    base_rect = QRect(
+                        int(base_x1), int(base_y2),
+                        int(base_x2 - base_x1), int(base_y1 - base_y2)
+                    )
+                    painter.drawRect(base_rect)
+
+        # === INDICATORE TIPO RINFORZO ===
+        # Piccola icona nell'angolo
+        icon_size = 16
+        icon_x = int(arch_x2) - icon_size - 5
+        icon_y = int(arch_y2) + 5
+
+        painter.setBrush(QBrush(Qt.white))
+        painter.setPen(QPen(border_color, 1))
+        painter.drawEllipse(icon_x, icon_y, icon_size, icon_size)
+
+        # Simbolo materiale
+        painter.setPen(border_color)
+        painter.setFont(QFont('Arial', 9, QFont.Bold))
+        if materiale == 'acciaio':
+            painter.drawText(icon_x + 3, icon_y + 12, "S")  # Steel
+        else:
+            painter.drawText(icon_x + 2, icon_y + 12, "CA")  # C.A.
+
+        # Indicatore "Esistente" se applicabile
+        if is_existing:
+            # Disegna "E" piccola accanto all'icona
+            painter.setFont(QFont('Arial', 8))
+            painter.setPen(QColor(255, 140, 0))  # Arancione
+            painter.drawText(icon_x + icon_size + 2, icon_y + 12, "E")
+
+    def draw_curved_reinforcement(self, painter, opening, rinforzo, fill_color, border_color, is_existing):
+        """Disegna rinforzo calandrato (curvo) per aperture circolari o ad arco"""
+        arco_data = rinforzo.get('arco', {})
+
+        # Coordinate apertura
+        x = opening['x']
+        y = opening['y']
+        w = opening['width']
+        h = opening['height']
+
+        # Spessore profilo calandrato
+        profile_thickness = 10  # cm default
+        profilo = arco_data.get('profilo', '')
+        try:
+            parts = profilo.split()
+            if len(parts) >= 2:
+                profile_h = int(parts[1])
+                profile_thickness = profile_h / 10  # mm to cm
+        except:
+            pass
+        profile_thickness = max(8, min(profile_thickness, 20))
+        t = profile_thickness
+
+        # Stile bordo
+        if is_existing:
+            pen = QPen(border_color, 2, Qt.DashLine)
+        else:
+            pen = QPen(border_color, 2)
+        painter.setPen(pen)
+        painter.setBrush(QBrush(fill_color))
+
+        # Tipo apertura per decidere come disegnare
+        opening_type = opening.get('type', 'Rettangolare')
+
+        if opening_type == 'Circolare':
+            # Per apertura circolare: disegna anello attorno
+            center_x = x + w / 2
+            center_y = y + h / 2
+            radius = w / 2
+
+            # Coordinate schermo per anello esterno
+            outer_x1, outer_y1 = self.wall_to_screen(center_x - radius - t, center_y + radius + t)
+            outer_x2, outer_y2 = self.wall_to_screen(center_x + radius + t, center_y - radius - t)
+
+            # Coordinate schermo per anello interno
+            inner_x1, inner_y1 = self.wall_to_screen(center_x - radius, center_y + radius)
+            inner_x2, inner_y2 = self.wall_to_screen(center_x + radius, center_y - radius)
+
+            # Path per l'anello (cerchio esterno - cerchio interno)
+            path = QPainterPath()
+            outer_rect = QRectF(outer_x1, outer_y2, outer_x2 - outer_x1, outer_y1 - outer_y2)
+            inner_rect = QRectF(inner_x1, inner_y2, inner_x2 - inner_x1, inner_y1 - inner_y2)
+
+            path.addEllipse(outer_rect)
+            path.addEllipse(inner_rect)
+
+            painter.drawPath(path)
+
+            # Etichetta profilo
+            painter.setPen(Qt.white)
+            painter.setFont(QFont('Arial', 8, QFont.Bold))
+            n_profili = arco_data.get('n_profili', 1)
+            label = f"{n_profili}x{profilo}" if n_profili > 1 else profilo
+            label_x, label_y = self.wall_to_screen(center_x, center_y + radius + t/2)
+            painter.drawText(int(label_x) - 30, int(label_y), label)
+
+        elif opening_type == 'Ad arco' and 'arch_data' in opening:
+            # Per apertura ad arco: disegna arco calandrato sopra
+            arch_data = opening.get('arch_data', {})
+            impost_height = arch_data.get('impost_height', h * 0.7)
+            arch_rise = arch_data.get('arch_rise', h - impost_height)
+
+            # Centro e raggio dell'arco
+            center_x = x + w / 2
+            center_y = y + impost_height
+            chord = w
+            radius = (arch_rise**2 + (chord/2)**2) / (2 * arch_rise) if arch_rise > 0 else chord/2
+
+            # Disegna arco esterno
+            arc_center_y = center_y + radius - arch_rise
+
+            # Rettangolo di contenimento per l'arco
+            outer_radius = radius + t
+            arc_x1, arc_y1 = self.wall_to_screen(center_x - outer_radius, arc_center_y + outer_radius)
+            arc_x2, arc_y2 = self.wall_to_screen(center_x + outer_radius, arc_center_y - outer_radius)
+
+            outer_rect = QRectF(arc_x1, arc_y2, arc_x2 - arc_x1, arc_y1 - arc_y2)
+
+            # Calcola angoli dell'arco
+            import math
+            start_angle = math.degrees(math.asin((chord/2) / outer_radius)) if outer_radius > chord/2 else 90
+            span_angle = 180 - 2 * (90 - start_angle)
+
+            # Disegna arco (nota: angoli in sedicesimi di grado per Qt)
+            painter.drawArc(outer_rect, int((90 - span_angle/2) * 16), int(span_angle * 16))
+
+            # Arco interno
+            inner_radius = radius
+            arc_x1i, arc_y1i = self.wall_to_screen(center_x - inner_radius, arc_center_y + inner_radius)
+            arc_x2i, arc_y2i = self.wall_to_screen(center_x + inner_radius, arc_center_y - inner_radius)
+            inner_rect = QRectF(arc_x1i, arc_y2i, arc_x2i - arc_x1i, arc_y1i - arc_y2i)
+            painter.drawArc(inner_rect, int((90 - span_angle/2) * 16), int(span_angle * 16))
+
+            # Etichetta
+            painter.setPen(Qt.white)
+            painter.setFont(QFont('Arial', 8, QFont.Bold))
+            n_profili = arco_data.get('n_profili', 1)
+            label = f"{n_profili}x{profilo}" if n_profili > 1 else profilo
+            label_x, label_y = self.wall_to_screen(center_x, y + h + t)
+            painter.drawText(int(label_x) - 25, int(label_y) - 5, label)
+
+        else:
+            # Fallback: disegna come architrave normale ma con indicazione curva
+            self.draw_reinforcement_fallback(painter, opening, rinforzo, fill_color, border_color, is_existing)
+
+        # Indicatore tipo
+        materiale = rinforzo.get('materiale', 'acciaio')
+        center_x = x + w / 2
+        icon_x, icon_y = self.wall_to_screen(center_x + w/2 + t, y + h)
+        icon_size = 16
+
+        painter.setBrush(QBrush(Qt.white))
+        painter.setPen(QPen(border_color, 1))
+        painter.drawEllipse(int(icon_x), int(icon_y), icon_size, icon_size)
+
+        painter.setPen(border_color)
+        painter.setFont(QFont('Arial', 9, QFont.Bold))
+        painter.drawText(int(icon_x) + 3, int(icon_y) + 12, "S" if materiale == 'acciaio' else "CA")
+
+        if is_existing:
+            painter.setFont(QFont('Arial', 8))
+            painter.setPen(QColor(255, 140, 0))
+            painter.drawText(int(icon_x) + icon_size + 2, int(icon_y) + 12, "E")
+
+    def draw_reinforcement_fallback(self, painter, opening, rinforzo, fill_color, border_color, is_existing):
+        """Fallback per rinforzo quando il tipo non è gestito specificamente"""
+        # Disegna un semplice rettangolo attorno all'apertura
+        x = opening['x']
+        y = opening['y']
+        w = opening['width']
+        h = opening['height']
+        t = 10  # spessore default
+
+        # Bordo superiore
+        x1, y1 = self.wall_to_screen(x - t/2, y + h)
+        x2, y2 = self.wall_to_screen(x + w + t/2, y + h + t)
+        rect = QRect(int(x1), int(y2), int(x2 - x1), int(y1 - y2))
+        painter.drawRect(rect)
+
     def draw_opening_label(self, painter, opening, index):
         """Disegna etichetta per apertura"""
         painter.setPen(self.colors['text'])
@@ -843,21 +1204,248 @@ class AdvancedWallCanvas(QWidget):
             text = f"M{len(sorted_openings) + 1}\n{int(self.wall_data['length'] - x_end)}cm"
             rect = QRect(int(x_screen - 30), int(y_screen), 60, 30)
             painter.drawText(rect, Qt.AlignCenter, text)
-            
+
+    def draw_drag_coordinates(self, painter):
+        """Disegna overlay con coordinate durante il drag"""
+        if self.selected_opening < 0 or self.selected_opening >= len(self.openings):
+            return
+
+        opening = self.openings[self.selected_opening]
+        x, y = opening['x'], opening['y']
+        w, h = opening['width'], opening['height']
+
+        # Coordinate schermo del centro dell'apertura
+        screen_cx, screen_cy = self.wall_to_screen(x + w/2, y + h/2)
+
+        # Testo coordinate
+        coord_text = f"X: {x} cm  Y: {y} cm"
+        dim_text = f"L: {w} cm  H: {h} cm"
+
+        # Font per coordinate
+        painter.setFont(QFont('Arial', 11, QFont.Bold))
+        fm = painter.fontMetrics()
+
+        # Calcola dimensioni box
+        text_width = max(fm.horizontalAdvance(coord_text), fm.horizontalAdvance(dim_text)) + 20
+        text_height = fm.height() * 2 + 15
+
+        # Posizione box (sopra l'apertura)
+        box_x = int(screen_cx - text_width / 2)
+        box_y = int(screen_cy - h * self.scale / 2 - text_height - 15)
+
+        # Assicurati che il box sia visibile
+        box_x = max(10, min(box_x, self.width() - text_width - 10))
+        box_y = max(10, box_y)
+
+        # Disegna sfondo arrotondato
+        box_rect = QRect(box_x, box_y, text_width, text_height)
+        painter.setBrush(QBrush(self.colors['coord_bg']))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(box_rect, 8, 8)
+
+        # Disegna freccia verso l'apertura
+        arrow_x = int(screen_cx)
+        arrow_y = box_y + text_height
+        painter.setBrush(QBrush(self.colors['coord_bg']))
+        arrow = [
+            QPoint(arrow_x - 8, arrow_y),
+            QPoint(arrow_x + 8, arrow_y),
+            QPoint(arrow_x, arrow_y + 10)
+        ]
+        painter.drawPolygon(QPolygon(arrow))
+
+        # Disegna testo
+        painter.setPen(self.colors['coord_text'])
+        painter.drawText(box_x + 10, box_y + fm.height() + 5, coord_text)
+        painter.setFont(QFont('Arial', 10))
+        painter.drawText(box_x + 10, box_y + fm.height() * 2 + 8, dim_text)
+
+        # Disegna linee guida tratteggiate
+        painter.setPen(QPen(QColor(0, 120, 215, 150), 1, Qt.DashLine))
+
+        # Linea verticale dall'apertura al fondo
+        screen_x_left, _ = self.wall_to_screen(x, 0)
+        _, screen_y_bottom = self.wall_to_screen(0, 0)
+        _, screen_y_top = self.wall_to_screen(0, y)
+        painter.drawLine(int(screen_x_left), int(screen_y_bottom), int(screen_x_left), int(screen_y_top))
+
+        # Linea orizzontale dall'apertura al lato
+        screen_x_origin, _ = self.wall_to_screen(0, 0)
+        painter.drawLine(int(screen_x_origin), int(screen_y_top), int(screen_x_left), int(screen_y_top))
+
+        # Quote sulle linee guida
+        painter.setFont(QFont('Arial', 9))
+        painter.setPen(QColor(0, 120, 215))
+
+        # Quota X (orizzontale)
+        mid_x = int((screen_x_origin + screen_x_left) / 2)
+        painter.drawText(mid_x - 15, int(screen_y_top) - 5, f"{x}")
+
+        # Quota Y (verticale)
+        mid_y = int((screen_y_bottom + screen_y_top) / 2)
+        painter.drawText(int(screen_x_left) + 5, mid_y, f"{y}")
+
     def mousePressEvent(self, event):
-        """Gestisce click del mouse"""
-        if event.button() == Qt.LeftButton and self.wall_data:
-            wall_x, wall_y = self.screen_to_wall(event.x(), event.y())
-            
+        """Gestisce click del mouse con supporto drag"""
+        if not self.wall_data:
+            return
+
+        wall_x, wall_y = self.screen_to_wall(event.x(), event.y())
+
+        if event.button() == Qt.LeftButton:
+            # Verifica se clicca su un'apertura
             for i, opening in enumerate(self.openings):
                 if self.is_point_in_opening(wall_x, wall_y, opening):
                     self.selected_opening = i
                     self.opening_selected.emit(i)
+
+                    # Inizia drag se modalità interattiva
+                    if self.interactive_mode:
+                        self.is_dragging = True
+                        self.drag_start_pos = (wall_x, wall_y)
+                        self.drag_opening_original_pos = (opening['x'], opening['y'])
+                        self.setCursor(Qt.ClosedHandCursor)
+
                     self.update()
                     return
-                    
+
+            # Click su area vuota - deseleziona
             self.selected_opening = -1
             self.update()
+
+    def mouseDoubleClickEvent(self, event):
+        """Gestisce doppio click per modifica o aggiunta apertura"""
+        if not self.wall_data or not self.interactive_mode:
+            return
+
+        wall_x, wall_y = self.screen_to_wall(event.x(), event.y())
+
+        # Verifica se doppio click su apertura esistente
+        for i, opening in enumerate(self.openings):
+            if self.is_point_in_opening(wall_x, wall_y, opening):
+                self.opening_double_clicked.emit(i)
+                return
+
+        # Doppio click su area vuota del muro - richiedi nuova apertura
+        if (0 <= wall_x <= self.wall_data['length'] and
+            0 <= wall_y <= self.get_max_height()):
+            self.add_opening_requested.emit(int(wall_x), int(wall_y))
+
+    def mouseMoveEvent(self, event):
+        """Gestisce movimento mouse per drag e hover"""
+        if not self.wall_data:
+            return
+
+        wall_x, wall_y = self.screen_to_wall(event.x(), event.y())
+
+        # Emetti posizione mouse
+        if (0 <= wall_x <= self.wall_data['length'] and
+            0 <= wall_y <= self.get_max_height()):
+            self.mouse_position_changed.emit(int(wall_x), int(wall_y))
+
+        # Gestione drag
+        if self.is_dragging and self.selected_opening >= 0:
+            opening = self.openings[self.selected_opening]
+
+            # Calcola nuova posizione
+            dx = wall_x - self.drag_start_pos[0]
+            dy = wall_y - self.drag_start_pos[1]
+
+            new_x = self.drag_opening_original_pos[0] + dx
+            new_y = self.drag_opening_original_pos[1] + dy
+
+            # Limita ai bordi del muro
+            new_x = max(0, min(new_x, self.wall_data['length'] - opening['width']))
+            new_y = max(0, min(new_y, self.get_max_height() - opening['height']))
+
+            # Aggiorna posizione
+            opening['x'] = int(new_x)
+            opening['y'] = int(new_y)
+
+            # Aggiorna coordinate correnti per visualizzazione
+            self.current_drag_coords = (int(new_x), int(new_y))
+
+            # Emetti segnale posizione in tempo reale durante il drag
+            self.opening_moved.emit(self.selected_opening)
+
+            self.update()
+            return
+
+        # Gestione hover (quando non in drag)
+        old_hover = self.hover_opening
+        self.hover_opening = -1
+
+        for i, opening in enumerate(self.openings):
+            if self.is_point_in_opening(wall_x, wall_y, opening):
+                self.hover_opening = i
+                if self.interactive_mode and not self.is_dragging:
+                    self.setCursor(Qt.OpenHandCursor)
+                break
+
+        if self.hover_opening == -1 and not self.is_dragging:
+            self.setCursor(Qt.ArrowCursor)
+
+        # Aggiorna solo se hover cambiato
+        if old_hover != self.hover_opening:
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        """Gestisce rilascio mouse"""
+        if event.button() == Qt.LeftButton and self.is_dragging:
+            self.is_dragging = False
+            self.drag_start_pos = None
+            self.drag_opening_original_pos = None
+            self.current_drag_coords = None  # Reset coordinate drag
+
+            if self.hover_opening >= 0:
+                self.setCursor(Qt.OpenHandCursor)
+            else:
+                self.setCursor(Qt.ArrowCursor)
+
+            # Emetti segnale finale di apertura spostata
+            if self.selected_opening >= 0:
+                self.opening_moved.emit(self.selected_opening)
+
+            self.update()
+
+    def keyPressEvent(self, event):
+        """Gestisce eventi tastiera"""
+        if not self.interactive_mode:
+            return
+
+        # Elimina apertura selezionata con Delete/Backspace
+        if event.key() in (Qt.Key_Delete, Qt.Key_Backspace):
+            if self.selected_opening >= 0:
+                self.remove_opening(self.selected_opening)
+                return
+
+        # Sposta apertura con frecce
+        if self.selected_opening >= 0:
+            opening = self.openings[self.selected_opening]
+            step = 10 if event.modifiers() & Qt.ShiftModifier else 1
+
+            if event.key() == Qt.Key_Left:
+                opening['x'] = max(0, opening['x'] - step)
+            elif event.key() == Qt.Key_Right:
+                opening['x'] = min(self.wall_data['length'] - opening['width'],
+                                   opening['x'] + step)
+            elif event.key() == Qt.Key_Up:
+                opening['y'] = min(self.get_max_height() - opening['height'],
+                                   opening['y'] + step)
+            elif event.key() == Qt.Key_Down:
+                opening['y'] = max(0, opening['y'] - step)
+            else:
+                return
+
+            self.opening_moved.emit(self.selected_opening)
+            self.update()
+
+    def set_interactive_mode(self, enabled):
+        """Abilita/disabilita modalità interattiva"""
+        self.interactive_mode = enabled
+        if not enabled:
+            self.is_dragging = False
+            self.setCursor(Qt.ArrowCursor)
             
     def is_point_in_opening(self, x, y, opening):
         """Verifica se un punto è dentro un'apertura - VERSIONE CORRETTA"""

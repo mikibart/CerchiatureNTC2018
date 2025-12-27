@@ -66,7 +66,15 @@ class RinforzoCerchiaturaDialog(QDialog):
         ])
         self.tipo_combo.currentIndexChanged.connect(self.on_tipo_changed)
         tipo_layout.addWidget(self.tipo_combo)
-        
+
+        # Checkbox rinforzo esistente
+        self.rinforzo_esistente = QCheckBox("Rinforzo/cerchiatura già esistente")
+        self.rinforzo_esistente.setToolTip(
+            "Spunta se il rinforzo è già presente (non da realizzare).\n"
+            "Utile per aperture esistenti con cerchiature già installate."
+        )
+        tipo_layout.addWidget(self.rinforzo_esistente)
+
         tipo_group.setLayout(tipo_layout)
         layout.addWidget(tipo_group)
         
@@ -1287,16 +1295,20 @@ class RinforzoCerchiaturaDialog(QDialog):
     def get_data(self):
         """Restituisce i dati del rinforzo"""
         tipo_index = self.tipo_combo.currentIndex()
-        
+        logger.info(f"get_data: tipo_index={tipo_index}, tipo={self.tipo_combo.currentText()}")
+
         if tipo_index >= 6:  # Nessun rinforzo
+            logger.info("get_data: Nessun rinforzo selezionato, return None")
             return None
-            
+
         data = {
             'tipo': self.tipo_combo.currentText(),
-            'note': self.note_text.toPlainText()
+            'note': self.note_text.toPlainText(),
+            'esistente': self.rinforzo_esistente.isChecked()
         }
-        
+
         if tipo_index < 2 or tipo_index in [4, 5]:  # Acciaio
+            logger.info(f"get_data: Materiale acciaio, profilo_calandrato={self.profilo_calandrato.currentText()}")
             data.update({
                 'materiale': 'acciaio',
                 'classe_acciaio': self.classe_acciaio.currentText(),
@@ -1467,13 +1479,25 @@ class RinforzoCerchiaturaDialog(QDialog):
                 
             # Arco calandrato
             if tipo_index == 5:
+                arco_profilo = self.profilo_calandrato.currentText()
+                arco_n_profili = self.calandrato_n_profili.value()
+
                 data['arco'] = {
                     'tipo_apertura': self.tipo_apertura_curva.currentText(),
                     'raggio': self.raggio_arco.value(),
                     'freccia': self.freccia_arco.value(),
-                    'profilo': self.profilo_calandrato.currentText(),
-                    'n_profili': self.calandrato_n_profili.value(),
+                    'profilo': arco_profilo,
+                    'n_profili': arco_n_profili,
                     'metodo': self.metodo_calandratura.currentText()
+                }
+
+                # Per calandrato: sovrascrivi architrave con dati arco per coerenza calcolo/grafica
+                data['architrave'] = {
+                    'profilo': arco_profilo,
+                    'n_profili': arco_n_profili,
+                    'interasse': 0,
+                    'disposizione': 'In linea',
+                    'ruotato': False
                 }
                 
         else:  # C.A.
@@ -1513,7 +1537,10 @@ class RinforzoCerchiaturaDialog(QDialog):
         index = self.tipo_combo.findText(tipo)
         if index >= 0:
             self.tipo_combo.setCurrentIndex(index)
-            
+
+        # Carica stato esistente
+        self.rinforzo_esistente.setChecked(self.rinforzo_data.get('esistente', False))
+
         # Carica dati specifici per materiale
         if self.rinforzo_data.get('materiale') == 'acciaio':
             # Classe acciaio
@@ -1994,6 +2021,139 @@ class OpeningDetailWidget(QWidget):
             self.maschio_dx_label.setText(f"{maschio_dx} cm")
 
 
+class ClosureConfigDialog(QDialog):
+    """Dialog per configurazione chiusura di apertura esistente"""
+
+    def __init__(self, parent=None, opening_data=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configurazione Chiusura Vano")
+        self.setModal(True)
+        self.setMinimumWidth(450)
+        self.opening_data = opening_data or {}
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout()
+
+        # Info apertura da chiudere
+        info_group = QGroupBox("Apertura da Chiudere")
+        info_layout = QFormLayout()
+
+        width = self.opening_data.get('width', 0)
+        height = self.opening_data.get('height', 0)
+        opening_type = self.opening_data.get('type', 'Rettangolare')
+
+        info_layout.addRow("Tipo:", QLabel(opening_type))
+        info_layout.addRow("Dimensioni:", QLabel(f"{width} x {height} cm"))
+        info_layout.addRow("Area:", QLabel(f"{width * height / 10000:.2f} m²"))
+
+        info_group.setLayout(info_layout)
+        layout.addWidget(info_group)
+
+        # Parametri chiusura
+        params_group = QGroupBox("Parametri Chiusura")
+        params_layout = QFormLayout()
+
+        # Tipo di chiusura
+        self.closure_type = QComboBox()
+        self.closure_type.addItems([
+            "Muratura piena",
+            "Muratura con ammorsamento",
+            "Tamponamento leggero",
+            "Infisso fisso",
+            "Vetrocemento",
+            "Pannello isolante",
+            "Altro"
+        ])
+        params_layout.addRow("Tipo chiusura:", self.closure_type)
+
+        # Materiale chiusura
+        self.closure_material = QComboBox()
+        self.closure_material.addItems([
+            "Mattoni pieni",
+            "Mattoni forati",
+            "Blocchi cls",
+            "Blocchi laterizio",
+            "Cartongesso",
+            "Poroton",
+            "Gasbeton",
+            "Altro"
+        ])
+        params_layout.addRow("Materiale:", self.closure_material)
+
+        # Spessore chiusura
+        self.closure_thickness = QSpinBox()
+        self.closure_thickness.setRange(5, 50)
+        self.closure_thickness.setValue(12)
+        self.closure_thickness.setSuffix(" cm")
+        params_layout.addRow("Spessore:", self.closure_thickness)
+
+        # Ammorsamento
+        self.has_connection = QCheckBox("Ammorsamento con muratura esistente")
+        self.has_connection.setChecked(True)
+        self.has_connection.toggled.connect(
+            lambda checked: self.connection_depth.setEnabled(checked)
+        )
+        params_layout.addRow("", self.has_connection)
+
+        # Profondità ammorsamento
+        self.connection_depth = QSpinBox()
+        self.connection_depth.setRange(5, 30)
+        self.connection_depth.setValue(12)
+        self.connection_depth.setSuffix(" cm")
+        params_layout.addRow("Prof. ammorsamento:", self.connection_depth)
+
+        # Caratteristiche meccaniche
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        params_layout.addRow(separator)
+
+        self.consider_structural = QCheckBox("Considera contributo strutturale")
+        self.consider_structural.setToolTip(
+            "Se selezionato, la chiusura contribuirà alla rigidezza\n"
+            "e resistenza della parete (richiede ammorsamento adeguato)"
+        )
+        params_layout.addRow("", self.consider_structural)
+
+        params_group.setLayout(params_layout)
+        layout.addWidget(params_group)
+
+        # Note
+        note_group = QGroupBox("Note")
+        note_layout = QVBoxLayout()
+        self.note_text = QTextEdit()
+        self.note_text.setMaximumHeight(60)
+        self.note_text.setPlaceholderText("Eventuali note sulla chiusura...")
+        note_layout.addWidget(self.note_text)
+        note_group.setLayout(note_layout)
+        layout.addWidget(note_group)
+
+        # Pulsanti
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
+            Qt.Horizontal, self
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.setLayout(layout)
+
+    def get_data(self):
+        """Restituisce i dati della chiusura"""
+        return {
+            'is_closure': True,
+            'type': self.closure_type.currentText(),
+            'material': self.closure_material.currentText(),
+            'thickness': self.closure_thickness.value(),
+            'has_connection': self.has_connection.isChecked(),
+            'connection_depth': self.connection_depth.value() if self.has_connection.isChecked() else 0,
+            'consider_structural': self.consider_structural.isChecked(),
+            'notes': self.note_text.toPlainText()
+        }
+
+
 class OpeningsModule(QWidget):
     """Modulo per configurazione aperture e rinforzi con canvas avanzato"""
     
@@ -2056,19 +2216,29 @@ class OpeningsModule(QWidget):
         
         # Pulsanti
         buttons_layout = QHBoxLayout()
-        
+
         self.add_btn = QPushButton("Aggiungi")
         self.add_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogOkButton))
         self.add_btn.setEnabled(False)
         self.add_btn.setToolTip("Aggiungi apertura dal modulo Struttura")
         buttons_layout.addWidget(self.add_btn)
-        
+
         self.remove_btn = QPushButton("Rimuovi")
         self.remove_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogCancelButton))
         self.remove_btn.setEnabled(False)
         buttons_layout.addWidget(self.remove_btn)
-        
+
         layout.addLayout(buttons_layout)
+
+        # Pulsante chiudi vano (riga separata per visibilità)
+        self.close_opening_btn = QPushButton("Chiudi Vano Esistente")
+        self.close_opening_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogCloseButton))
+        self.close_opening_btn.setEnabled(False)
+        self.close_opening_btn.setToolTip(
+            "Converte l'apertura selezionata in una chiusura.\n"
+            "Utile per chiudere vani esistenti di qualsiasi forma."
+        )
+        layout.addWidget(self.close_opening_btn)
         
         # Riepilogo
         summary_group = QGroupBox("Riepilogo")
@@ -2168,12 +2338,13 @@ class OpeningsModule(QWidget):
         """Connette i segnali"""
         self.openings_tree.itemSelectionChanged.connect(self.on_selection_changed)
         self.openings_tree.itemDoubleClicked.connect(self.on_item_double_clicked)
-        
+
         self.remove_btn.clicked.connect(self.remove_opening)
+        self.close_opening_btn.clicked.connect(self.close_existing_opening)
         self.edit_geometry_btn.clicked.connect(self.edit_geometry)
         self.configure_rinforzo_btn.clicked.connect(self.configure_rinforzo)
         self.remove_rinforzo_btn.clicked.connect(self.remove_rinforzo)
-        
+
         # Canvas signals
         self.wall_canvas.opening_selected.connect(self.select_opening)
         
@@ -2213,22 +2384,30 @@ class OpeningsModule(QWidget):
             # Testo elementi
             name = f"A{i+1}"
             tipo = opening.get('type', 'Rettangolare')
-            if opening.get('existing'):
+
+            # Aggiungi stato esistente/chiusura
+            if 'closure_data' in opening:
+                tipo += " [CHIUSA]"
+            elif opening.get('existing'):
                 tipo += " (esistente)"
-                
+
             rinforzo = "Nessuno"
             if 'rinforzo' in opening and opening['rinforzo']:
                 rinforzo = opening['rinforzo']['materiale'].upper()
-                
+
             # Crea item
             item = QTreeWidgetItem([name, tipo, rinforzo])
-            
-            # Colora in base al rinforzo
-            if rinforzo == "ACCIAIO":
+
+            # Colora in base allo stato
+            if 'closure_data' in opening:
+                # Apertura chiusa - verde
+                item.setForeground(0, QBrush(QColor(0, 128, 0)))
+                item.setForeground(1, QBrush(QColor(0, 128, 0)))
+            elif rinforzo == "ACCIAIO":
                 item.setForeground(2, QBrush(QColor(0, 0, 255)))
             elif rinforzo == "CA":
                 item.setForeground(2, QBrush(QColor(128, 0, 128)))
-                
+
             self.openings_tree.addTopLevelItem(item)
             
     def refresh_canvas(self):
@@ -2306,12 +2485,20 @@ class OpeningsModule(QWidget):
         self.remove_btn.setEnabled(has_selection)
         self.edit_geometry_btn.setEnabled(has_selection)
         self.configure_rinforzo_btn.setEnabled(has_selection)
-        
+
         if has_selection:
-            has_rinforzo = bool(self.openings[self.current_opening_index].get('rinforzo'))
+            opening = self.openings[self.current_opening_index]
+            has_rinforzo = bool(opening.get('rinforzo'))
             self.remove_rinforzo_btn.setEnabled(has_rinforzo)
+
+            # Abilita chiusura solo per aperture esistenti non già chiuse
+            is_existing = opening.get('existing', False)
+            is_closure = opening.get('type') == 'Chiusura vano esistente'
+            has_closure_data = 'closure_data' in opening
+            self.close_opening_btn.setEnabled(is_existing and not is_closure and not has_closure_data)
         else:
             self.remove_rinforzo_btn.setEnabled(False)
+            self.close_opening_btn.setEnabled(False)
             
     def edit_geometry(self):
         """Modifica geometria apertura selezionata"""
@@ -2343,27 +2530,31 @@ class OpeningsModule(QWidget):
         """Configura rinforzo per apertura selezionata"""
         if self.current_opening_index < 0:
             return
-            
+
         opening = self.openings[self.current_opening_index]
         rinforzo_data = opening.get('rinforzo')
-        
+
         # Passa anche lo spessore del muro se disponibile
         wall_thickness = self.wall_data.get('thickness', 30) if self.wall_data else 30
-        
+
         dialog = RinforzoCerchiaturaDialog(self, rinforzo_data, wall_thickness)
         if dialog.exec_():
             rinforzo = dialog.get_data()
+            logger.info(f"Rinforzo configurato: tipo={dialog.tipo_combo.currentText()}, index={dialog.tipo_combo.currentIndex()}")
+            logger.info(f"Dati rinforzo: {rinforzo}")
             if rinforzo:  # Solo se non è "Nessun rinforzo"
                 self.openings[self.current_opening_index]['rinforzo'] = rinforzo
                 self.refresh_all()
                 self.data_changed.emit()
                 # Aggiorna dettagli immediatamente
                 self.detail_widget.update_opening(
-                    self.openings[self.current_opening_index], 
-                    self.current_opening_index, 
-                    self.wall_data, 
+                    self.openings[self.current_opening_index],
+                    self.current_opening_index,
+                    self.wall_data,
                     self.openings
                 )
+            else:
+                logger.warning("Rinforzo non salvato: get_data() ha restituito None")
             
     def remove_rinforzo(self):
         """Rimuove rinforzo da apertura selezionata"""
@@ -2398,7 +2589,45 @@ class OpeningsModule(QWidget):
             self.current_opening_index = -1
             self.refresh_all()
             self.data_changed.emit()
-            
+
+    def close_existing_opening(self):
+        """Converte un'apertura esistente in una chiusura"""
+        if self.current_opening_index < 0:
+            return
+
+        opening = self.openings[self.current_opening_index]
+
+        # Verifica che sia un'apertura esistente
+        if not opening.get('existing', False):
+            QMessageBox.warning(
+                self, "Attenzione",
+                "Solo le aperture esistenti possono essere chiuse.\n"
+                "Contrassegna prima l'apertura come 'esistente'."
+            )
+            return
+
+        # Dialog per configurare la chiusura
+        dialog = ClosureConfigDialog(self, opening)
+        if dialog.exec_():
+            closure_data = dialog.get_data()
+
+            # Aggiorna l'apertura con i dati di chiusura
+            self.openings[self.current_opening_index]['closure_data'] = closure_data
+
+            # Log
+            logger.info(f"Apertura A{self.current_opening_index + 1} convertita in chiusura: {closure_data['type']}")
+
+            self.refresh_all()
+            self.data_changed.emit()
+
+            # Mostra messaggio di conferma
+            QMessageBox.information(
+                self, "Chiusura Configurata",
+                f"L'apertura A{self.current_opening_index + 1} è stata configurata come chiusura.\n"
+                f"Tipo: {closure_data['type']}\n"
+                f"Materiale: {closure_data['material']}"
+            )
+
     def collect_data(self):
         """Raccoglie dati del modulo"""
         return {

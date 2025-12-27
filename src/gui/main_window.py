@@ -1,6 +1,7 @@
 """
 Finestra principale applicazione
 Calcolatore Cerchiature NTC 2018
+Versione con UI migliorata
 """
 
 from PyQt5.QtWidgets import *
@@ -11,6 +12,35 @@ import json
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Import nuovi componenti UI
+try:
+    from src.gui.ui_enhancements import (
+        WorkflowIndicator, SummaryDock, ToastManager,
+        ProgressButton, create_separator
+    )
+    from src.gui.modern_style import apply_modern_style, toggle_theme, get_current_theme, COLORS
+    UI_ENHANCEMENTS_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"UI Enhancements non disponibili: {e}")
+    UI_ENHANCEMENTS_AVAILABLE = False
+
+# Import nuove funzionalità
+try:
+    from src.core.app_config import get_app_config, get_undo_manager, get_autosave_manager
+    from src.core.project_templates import get_all_templates, get_categories, template_to_project_data
+    from src.core.exporters import export_to_excel, export_to_dxf
+    ADVANCED_FEATURES_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Funzionalità avanzate non disponibili: {e}")
+    ADVANCED_FEATURES_AVAILABLE = False
+
+try:
+    from src.widgets.wall_3d_view import Wall3DView
+    VIEW_3D_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Vista 3D non disponibile: {e}")
+    VIEW_3D_AVAILABLE = False
 
 # Import dei moduli
 try:
@@ -45,25 +75,34 @@ except ImportError as e:
     logger.info(f"EnhancedReportModule non disponibile: {e}")
 
 class MainWindow(QMainWindow):
-    """Finestra principale con gestione moduli"""
-    
+    """Finestra principale con gestione moduli e UI migliorata"""
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Calcolatore Cerchiature NTC 2018 - Arch. M. Bartolotta")
-        self.setGeometry(100, 100, 1200, 800)
-        
+        self.setGeometry(100, 100, 1400, 900)
+
         # Centra la finestra
         self.center_window()
-        
+
         # Dati progetto condivisi tra moduli
         self.project_data = {}
         self.current_file = None
         self.is_modified = False
-        
+        self.calculation_results = None  # Risultati ultimo calcolo
+
+        # Inizializza Toast Manager per notifiche
+        if UI_ENHANCEMENTS_AVAILABLE:
+            self.toast_manager = ToastManager(self)
+        else:
+            self.toast_manager = None
+
         self.setup_ui()
         self.setup_menu()
         self.setup_toolbar()
         self.setup_statusbar()
+        self.setup_shortcuts()
+        self.setup_summary_dock()
         
     def center_window(self):
         """Centra la finestra sullo schermo"""
@@ -75,28 +114,40 @@ class MainWindow(QMainWindow):
         )
         
     def setup_ui(self):
-        """Configura interfaccia con tabs"""
+        """Configura interfaccia con tabs e workflow indicator"""
+        # Widget centrale
+        central_widget = QWidget()
+        central_layout = QVBoxLayout()
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+
+        # Workflow Indicator (se disponibile)
+        if UI_ENHANCEMENTS_AVAILABLE:
+            self.workflow_indicator = WorkflowIndicator()
+            self.workflow_indicator.step_clicked.connect(self.on_workflow_step_clicked)
+            # Container con sfondo
+            workflow_container = QWidget()
+            workflow_container.setStyleSheet("""
+                QWidget {
+                    background: #ffffff;
+                    border-bottom: 1px solid #dcdde1;
+                }
+            """)
+            workflow_layout = QHBoxLayout()
+            workflow_layout.setContentsMargins(10, 5, 10, 5)
+            workflow_layout.addWidget(self.workflow_indicator)
+            workflow_container.setLayout(workflow_layout)
+            central_layout.addWidget(workflow_container)
+        else:
+            self.workflow_indicator = None
+
         # Widget centrale con tab
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.North)
-        self.setCentralWidget(self.tabs)
-        
-        # Stile per i tab
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #ccc;
-                background: white;
-            }
-            QTabBar::tab {
-                padding: 8px 16px;
-                margin-right: 4px;
-            }
-            QTabBar::tab:selected {
-                background: #3498db;
-                color: white;
-                font-weight: bold;
-            }
-        """)
+        central_layout.addWidget(self.tabs)
+
+        central_widget.setLayout(central_layout)
+        self.setCentralWidget(central_widget)
         
         # Modulo input struttura
         if InputModule:
@@ -262,13 +313,16 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         
         export_menu = file_menu.addMenu('&Esporta')
-        
+
         export_excel = QAction('Esporta in Excel...', self)
-        export_excel.setStatusTip('Esporta dati in formato Excel')
+        export_excel.setShortcut('Ctrl+E')
+        export_excel.setStatusTip('Esporta dati e risultati in formato Excel')
+        export_excel.triggered.connect(self.export_to_excel)
         export_menu.addAction(export_excel)
-        
+
         export_dxf = QAction('Esporta geometria DXF...', self)
-        export_dxf.setStatusTip('Esporta geometria in formato DXF')
+        export_dxf.setStatusTip('Esporta geometria in formato DXF per CAD')
+        export_dxf.triggered.connect(self.export_to_dxf)
         export_menu.addAction(export_dxf)
         
         file_menu.addSeparator()
@@ -281,17 +335,41 @@ class MainWindow(QMainWindow):
         
         # Menu Modifica
         edit_menu = menubar.addMenu('&Modifica')
-        
-        undo_action = QAction(QIcon.fromTheme('edit-undo'), '&Annulla', self)
-        undo_action.setShortcut('Ctrl+Z')
-        undo_action.setEnabled(False)
-        edit_menu.addAction(undo_action)
-        
-        redo_action = QAction(QIcon.fromTheme('edit-redo'), '&Ripeti', self)
-        redo_action.setShortcut('Ctrl+Y')
-        redo_action.setEnabled(False)
-        edit_menu.addAction(redo_action)
-        
+
+        self.undo_action = QAction(QIcon.fromTheme('edit-undo'), '&Annulla', self)
+        self.undo_action.setShortcut('Ctrl+Z')
+        self.undo_action.setStatusTip('Annulla ultima modifica')
+        self.undo_action.triggered.connect(self.undo)
+        self.undo_action.setEnabled(False)
+        edit_menu.addAction(self.undo_action)
+
+        self.redo_action = QAction(QIcon.fromTheme('edit-redo'), '&Ripeti', self)
+        self.redo_action.setShortcut('Ctrl+Y')
+        self.redo_action.setStatusTip('Ripeti modifica annullata')
+        self.redo_action.triggered.connect(self.redo)
+        self.redo_action.setEnabled(False)
+        edit_menu.addAction(self.redo_action)
+
+        edit_menu.addSeparator()
+
+        # Menu Template
+        template_menu = edit_menu.addMenu('Carica &Template')
+        if ADVANCED_FEATURES_AVAILABLE:
+            templates = get_all_templates()
+            categories = get_categories()
+            for category in sorted(categories):
+                cat_menu = template_menu.addMenu(category)
+                for template_id, template in templates.items():
+                    if template.category == category:
+                        action = QAction(template.name, self)
+                        action.setStatusTip(template.description)
+                        action.triggered.connect(
+                            lambda checked, tid=template_id: self.load_template(tid)
+                        )
+                        cat_menu.addAction(action)
+        else:
+            template_menu.setEnabled(False)
+
         edit_menu.addSeparator()
         
         copy_action = QAction(QIcon.fromTheme('edit-copy'), '&Copia', self)
@@ -306,18 +384,38 @@ class MainWindow(QMainWindow):
         
         # Menu Visualizza
         view_menu = menubar.addMenu('&Visualizza')
-        
+
         zoom_in_action = QAction('Zoom &avanti', self)
         zoom_in_action.setShortcut('Ctrl++')
         view_menu.addAction(zoom_in_action)
-        
+
         zoom_out_action = QAction('Zoom &indietro', self)
         zoom_out_action.setShortcut('Ctrl+-')
         view_menu.addAction(zoom_out_action)
-        
+
         zoom_fit_action = QAction('&Adatta alla finestra', self)
         zoom_fit_action.setShortcut('Ctrl+0')
         view_menu.addAction(zoom_fit_action)
+
+        view_menu.addSeparator()
+
+        # Vista 3D
+        view_3d_action = QAction('Vista &3D...', self)
+        view_3d_action.setShortcut('F3')
+        view_3d_action.setStatusTip('Mostra vista 3D isometrica del muro')
+        view_3d_action.triggered.connect(self.show_3d_view)
+        view_3d_action.setEnabled(VIEW_3D_AVAILABLE)
+        view_menu.addAction(view_3d_action)
+
+        view_menu.addSeparator()
+
+        # Toggle tema
+        self.theme_action = QAction('Tema &Scuro', self)
+        self.theme_action.setShortcut('Ctrl+D')
+        self.theme_action.setStatusTip('Alterna tra tema chiaro e scuro')
+        self.theme_action.setCheckable(True)
+        self.theme_action.triggered.connect(self.toggle_theme)
+        view_menu.addAction(self.theme_action)
         
         # Menu Strumenti
         tools_menu = menubar.addMenu('&Strumenti')
@@ -440,16 +538,26 @@ class MainWindow(QMainWindow):
         """Chiamato quando i dati cambiano"""
         self.is_modified = True
         self.update_title()
-        
+
         # Sincronizza dati tra moduli quando cambiano
         if self.tabs.currentIndex() == 0:  # Tab struttura
             self.sync_modules_data()
+
+        # Aggiorna summary dock
+        self.update_summary_dock()
+
+        # Aggiorna workflow indicator
+        self.update_workflow_state()
             
     def on_tab_changed(self, index):
         """Chiamato quando si cambia tab"""
         tab_names = ["Struttura", "Aperture", "Calcolo", "Relazione", "Relazione Completa"]
         if index < len(tab_names):
             self.status_bar.showMessage(f"Modulo attivo: {tab_names[index]}")
+
+        # Aggiorna workflow indicator
+        if self.workflow_indicator and index < 4:
+            self.workflow_indicator.set_current_step(index)
             
         # Sincronizza dati quando si passa al modulo aperture
         if index == 1 and hasattr(self, 'input_module') and hasattr(self, 'openings_module'):
@@ -1136,16 +1244,32 @@ class MainWindow(QMainWindow):
             
     def on_calculation_done(self, results):
         """Chiamato quando il calcolo è completato"""
+        self.calculation_results = results  # Salva risultati
         self.status_bar.showMessage("Calcolo completato", 3000)
-        
+
+        # Notifica toast
+        if self.toast_manager:
+            verif = results.get('verification', {})
+            if verif.get('is_local'):
+                self.toast_manager.success("Calcolo completato: Intervento LOCALE verificato")
+            else:
+                self.toast_manager.warning("Calcolo completato: Intervento NON locale")
+
+        # Aggiorna workflow indicator
+        if self.workflow_indicator:
+            self.workflow_indicator.set_step_complete(2, True)
+
+        # Aggiorna summary dock
+        self.update_summary_dock()
+
         # Abilita il pulsante per generare la relazione
         if hasattr(self, 'report_action'):
             self.report_action.setEnabled(True)
-            
+
         # Passa i risultati al modulo relazione standard
         if hasattr(self, 'report_module') and self.report_module:
             self.report_module.set_results(results)
-            
+
         # Passa i risultati anche al modulo relazione avanzata
         if hasattr(self, 'enhanced_report_module') and self.enhanced_report_module:
             # Raccogli i dati del progetto
@@ -1161,10 +1285,320 @@ class MainWindow(QMainWindow):
         """Genera relazione dal toolbar"""
         # Vai al tab relazione
         self.tabs.setCurrentIndex(3)
-        
+
         # Aggiorna dati e genera
         if hasattr(self, 'report_module') and self.report_module:
             self.update_report_module_data()
             # Attiva la generazione se ci sono risultati
             if hasattr(self, 'calc_module') and hasattr(self.calc_module, 'results'):
                 self.report_module.generate_report()
+
+        # Aggiorna workflow indicator
+        if self.workflow_indicator:
+            self.workflow_indicator.set_step_complete(3, True)
+
+    def setup_shortcuts(self):
+        """Configura scorciatoie da tastiera aggiuntive"""
+        shortcuts = [
+            ("F5", self.run_calculation, "Esegui calcolo"),
+            ("Ctrl+1", lambda: self.tabs.setCurrentIndex(0), "Tab Struttura"),
+            ("Ctrl+2", lambda: self.tabs.setCurrentIndex(1), "Tab Aperture"),
+            ("Ctrl+3", lambda: self.tabs.setCurrentIndex(2), "Tab Calcolo"),
+            ("Ctrl+4", lambda: self.tabs.setCurrentIndex(3), "Tab Relazione"),
+            ("Ctrl+R", self.generate_report, "Genera relazione"),
+            ("F1", self.show_manual, "Mostra manuale"),
+        ]
+
+        for key, callback, tip in shortcuts:
+            try:
+                shortcut = QShortcut(QKeySequence(key), self)
+                shortcut.activated.connect(callback)
+                shortcut.setWhatsThis(tip)
+            except Exception as e:
+                logger.warning(f"Errore creazione shortcut {key}: {e}")
+
+    def setup_summary_dock(self):
+        """Configura il dock widget di riepilogo"""
+        if not UI_ENHANCEMENTS_AVAILABLE:
+            self.summary_dock = None
+            return
+
+        self.summary_dock = SummaryDock(self)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.summary_dock)
+
+        # Aggiorna con dati iniziali
+        self.update_summary_dock()
+
+    def on_workflow_step_clicked(self, step_index):
+        """Gestisce click su step del workflow"""
+        if 0 <= step_index < self.tabs.count():
+            self.tabs.setCurrentIndex(step_index)
+
+    def update_summary_dock(self):
+        """Aggiorna il dock widget di riepilogo"""
+        if not hasattr(self, 'summary_dock') or not self.summary_dock:
+            return
+
+        # Raccogli dati
+        project_data = {}
+        wall_area = 0
+
+        if hasattr(self, 'input_module') and self.input_module:
+            project_data = self.input_module.collect_data()
+            wall = project_data.get('wall', {})
+            wall_area = wall.get('length', 0) * wall.get('height', 0) / 10000
+
+        # Aggiorna sezioni
+        self.summary_dock.update_wall_data(project_data.get('wall', {}))
+        self.summary_dock.update_masonry_data(project_data.get('masonry', {}))
+
+        # Aperture
+        openings = []
+        if hasattr(self, 'openings_module') and self.openings_module:
+            openings_data = self.openings_module.collect_data()
+            openings = openings_data.get('openings', [])
+        elif 'openings' in project_data:
+            openings = project_data.get('openings', [])
+
+        self.summary_dock.update_openings_data(openings, wall_area)
+
+        # Verifica
+        if self.calculation_results:
+            self.summary_dock.update_verification(self.calculation_results)
+
+    def update_workflow_state(self):
+        """Aggiorna lo stato del workflow indicator"""
+        if not self.workflow_indicator:
+            return
+
+        # Step 0: Struttura - completo se ci sono dati muro validi
+        if hasattr(self, 'input_module') and self.input_module:
+            data = self.input_module.collect_data()
+            wall = data.get('wall', {})
+            if wall.get('length', 0) > 0 and wall.get('height', 0) > 0:
+                self.workflow_indicator.set_step_complete(0, True)
+            else:
+                self.workflow_indicator.set_step_complete(0, False)
+
+        # Step 1: Aperture - completo se ci sono aperture con rinforzi
+        if hasattr(self, 'openings_module') and self.openings_module:
+            openings_data = self.openings_module.collect_data()
+            openings = openings_data.get('openings', [])
+            has_reinforcement = any('rinforzo' in op for op in openings)
+            self.workflow_indicator.set_step_complete(1, has_reinforcement)
+
+        # Step 2: Calcolo - completo se ci sono risultati
+        self.workflow_indicator.set_step_complete(2, self.calculation_results is not None)
+
+        # Step 3: Relazione - viene impostato in generate_report()
+
+    def show_toast(self, message, type_="info"):
+        """Mostra una notifica toast"""
+        if self.toast_manager:
+            if type_ == "success":
+                self.toast_manager.success(message)
+            elif type_ == "error":
+                self.toast_manager.error(message)
+            elif type_ == "warning":
+                self.toast_manager.warning(message)
+            else:
+                self.toast_manager.info(message)
+
+    # ===== NUOVE FUNZIONALITA' =====
+
+    def export_to_excel(self):
+        """Esporta progetto e risultati in Excel"""
+        if not ADVANCED_FEATURES_AVAILABLE:
+            QMessageBox.warning(self, "Non disponibile",
+                              "Funzionalità export Excel non disponibile.\n"
+                              "Installare openpyxl: pip install openpyxl")
+            return
+
+        # Raccogli dati
+        project_data = self.collect_all_data()
+        results = self.calculation_results or {}
+
+        # Dialogo salvataggio
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Esporta in Excel",
+            "cerchiature_export.xlsx",
+            "File Excel (*.xlsx);;File CSV (*.csv)"
+        )
+
+        if filepath:
+            try:
+                saved_path = export_to_excel(filepath, project_data, results)
+                self.show_toast(f"Esportato in {os.path.basename(saved_path)}", "success")
+                self.status_bar.showMessage(f"Esportato: {saved_path}", 5000)
+            except Exception as e:
+                QMessageBox.critical(self, "Errore", f"Errore esportazione: {e}")
+                logger.error(f"Errore export Excel: {e}")
+
+    def export_to_dxf(self):
+        """Esporta geometria in DXF"""
+        if not ADVANCED_FEATURES_AVAILABLE:
+            QMessageBox.warning(self, "Non disponibile",
+                              "Funzionalità export DXF non disponibile.")
+            return
+
+        # Raccogli dati
+        project_data = self.collect_all_data()
+        results = self.calculation_results
+
+        # Dialogo salvataggio
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Esporta in DXF",
+            "cerchiature_geometria.dxf",
+            "File DXF (*.dxf)"
+        )
+
+        if filepath:
+            try:
+                saved_path = export_to_dxf(filepath, project_data, results)
+                self.show_toast(f"Esportato in {os.path.basename(saved_path)}", "success")
+                self.status_bar.showMessage(f"Esportato: {saved_path}", 5000)
+            except Exception as e:
+                QMessageBox.critical(self, "Errore", f"Errore esportazione DXF: {e}")
+                logger.error(f"Errore export DXF: {e}")
+
+    def collect_all_data(self):
+        """Raccoglie tutti i dati del progetto"""
+        project_data = {}
+
+        if hasattr(self, 'input_module') and self.input_module:
+            project_data.update(self.input_module.collect_data())
+
+        if hasattr(self, 'openings_module') and self.openings_module:
+            project_data['openings_module'] = self.openings_module.collect_data()
+
+        project_data['project_info'] = {
+            'name': os.path.basename(self.current_file) if self.current_file else 'Nuovo progetto'
+        }
+
+        return project_data
+
+    def undo(self):
+        """Annulla ultima modifica"""
+        if ADVANCED_FEATURES_AVAILABLE:
+            undo_manager = get_undo_manager()
+            if undo_manager.can_undo():
+                state = undo_manager.undo()
+                if state:
+                    self.restore_state(state)
+                    self.show_toast("Annullato", "info")
+                self.update_undo_redo_state()
+
+    def redo(self):
+        """Ripristina modifica annullata"""
+        if ADVANCED_FEATURES_AVAILABLE:
+            undo_manager = get_undo_manager()
+            if undo_manager.can_redo():
+                state = undo_manager.redo()
+                if state:
+                    self.restore_state(state)
+                    self.show_toast("Ripristinato", "info")
+                self.update_undo_redo_state()
+
+    def save_undo_state(self, description="Modifica"):
+        """Salva stato corrente per undo"""
+        if ADVANCED_FEATURES_AVAILABLE:
+            state = self.collect_all_data()
+            undo_manager = get_undo_manager()
+            undo_manager.save_state(state, description)
+            self.update_undo_redo_state()
+
+    def restore_state(self, state):
+        """Ripristina stato salvato"""
+        if hasattr(self, 'input_module') and self.input_module:
+            self.input_module.set_data(state)
+        self.sync_modules_data()
+
+    def update_undo_redo_state(self):
+        """Aggiorna stato pulsanti undo/redo"""
+        if ADVANCED_FEATURES_AVAILABLE and hasattr(self, 'undo_action'):
+            undo_manager = get_undo_manager()
+            self.undo_action.setEnabled(undo_manager.can_undo())
+            self.redo_action.setEnabled(undo_manager.can_redo())
+
+    def load_template(self, template_id):
+        """Carica un template di progetto"""
+        if not ADVANCED_FEATURES_AVAILABLE:
+            return
+
+        templates = get_all_templates()
+        template = templates.get(template_id)
+
+        if template:
+            reply = QMessageBox.question(
+                self, "Carica Template",
+                f"Caricare il template '{template.name}'?\n\n{template.description}\n\n"
+                "I dati correnti saranno sovrascritti.",
+                QMessageBox.Yes | QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                project_data = template_to_project_data(template)
+
+                # Applica dati
+                if hasattr(self, 'input_module') and self.input_module:
+                    self.input_module.load_data(project_data)
+
+                self.sync_modules_data()
+                self.is_modified = True
+                self.update_title()
+                self.show_toast(f"Template '{template.name}' caricato", "success")
+
+    def show_3d_view(self):
+        """Mostra finestra vista 3D"""
+        if not VIEW_3D_AVAILABLE:
+            QMessageBox.warning(self, "Non disponibile",
+                              "Vista 3D non disponibile.")
+            return
+
+        # Crea dialog con vista 3D
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Vista 3D Muro")
+        dialog.setMinimumSize(600, 500)
+
+        layout = QVBoxLayout()
+
+        # Widget vista 3D
+        view_3d = Wall3DView()
+
+        # Imposta dati muro
+        if hasattr(self, 'input_module') and self.input_module:
+            data = self.input_module.collect_data()
+            wall = data.get('wall', {})
+            view_3d.set_wall_data(
+                wall.get('length', 300),
+                wall.get('height', 300),
+                wall.get('thickness', 30)
+            )
+
+            # Imposta aperture
+            if hasattr(self, 'openings_module') and self.openings_module:
+                openings_data = self.openings_module.collect_data()
+                view_3d.set_openings(openings_data.get('openings', []))
+
+        layout.addWidget(view_3d)
+
+        # Pulsanti
+        btn_layout = QHBoxLayout()
+        reset_btn = QPushButton("Reset Vista")
+        reset_btn.clicked.connect(view_3d.reset_view)
+        btn_layout.addWidget(reset_btn)
+        btn_layout.addStretch()
+        close_btn = QPushButton("Chiudi")
+        close_btn.clicked.connect(dialog.close)
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+
+        dialog.setLayout(layout)
+        dialog.exec_()
+
+    def toggle_theme(self):
+        """Alterna tema chiaro/scuro"""
+        if UI_ENHANCEMENTS_AVAILABLE:
+            new_theme = toggle_theme(QApplication.instance())
+            self.theme_action.setChecked(new_theme == 'dark')
+            self.show_toast(f"Tema: {'Scuro' if new_theme == 'dark' else 'Chiaro'}", "info")

@@ -89,7 +89,14 @@ class ResultsCanvas(FigureCanvas):
                 mechanism = 'mixed'  # Misto
                 mu_ductility = mu_ductility_base
                 beta_degradation = beta_degradation_base
-            
+
+            # La presenza di cerchiature ESISTENTI aumenta la duttilità anche nello stato di fatto
+            if 'K_cerchiature' in results['original'] and results['original']['K_cerchiature'] > 0:
+                frame_contribution = results['original']['K_cerchiature'] / results['original']['K']
+                if frame_contribution > 0.1:  # Contributo significativo delle cerchiature esistenti
+                    mu_ductility *= (1 + 0.3 * min(frame_contribution / 0.3, 1.0))
+                    beta_degradation *= 0.8  # Degrado più graduale
+
             # Calcola spostamenti caratteristici
             d_yield_orig = V_max_orig / K_orig * 1000  # [mm] spostamento al limite elastico
             d_max_orig = d_yield_orig * mu_ductility  # [mm] spostamento ultimo
@@ -141,10 +148,11 @@ class ResultsCanvas(FigureCanvas):
                 beta_degradation_mod = beta_degradation_base
             
             # La presenza di cerchiature può aumentare la duttilità
+            # NOTA: usa la stessa formula dello stato di fatto per coerenza
             if 'K_cerchiature' in results['modified'] and results['modified']['K_cerchiature'] > 0:
                 frame_contribution = results['modified']['K_cerchiature'] / results['modified']['K']
-                if frame_contribution > 0.3:  # Contributo significativo delle cerchiature
-                    mu_ductility_mod *= 1.3  # Aumento duttilità del 30%
+                if frame_contribution > 0.1:  # Contributo significativo delle cerchiature
+                    mu_ductility_mod *= (1 + 0.3 * min(frame_contribution / 0.3, 1.0))
                     beta_degradation_mod *= 0.8  # Degrado più graduale
             
             # Calcola spostamenti caratteristici
@@ -210,14 +218,25 @@ class ResultsCanvas(FigureCanvas):
             # Identifica meccanismo
             if results['original']['V_t1'] == V_min:
                 params['original_mechanism'] = 'taglio'
-                params['original_ductility'] = 2.0
+                base_ductility_orig = 2.0
             elif results['original']['V_t3'] == V_min:
                 params['original_mechanism'] = 'pressoflessione'
-                params['original_ductility'] = 3.0
+                base_ductility_orig = 3.0
             else:
                 params['original_mechanism'] = 'misto'
-                params['original_ductility'] = 2.5
-                
+                base_ductility_orig = 2.5
+
+            # Incremento duttilità per cerchiature ESISTENTI (stessa formula dello stato di progetto)
+            if 'K_cerchiature' in results['original'] and results['original']['K_cerchiature'] > 0:
+                frame_ratio = results['original']['K_cerchiature'] / K
+                if frame_ratio > 0.1:  # Contributo significativo
+                    ductility_factor = 1 + 0.3 * min(frame_ratio / 0.3, 1.0)
+                    params['original_ductility'] = base_ductility_orig * ductility_factor
+                else:
+                    params['original_ductility'] = base_ductility_orig
+            else:
+                params['original_ductility'] = base_ductility_orig
+
             # Spostamento al limite elastico
             params['original_dy'] = V_min / K * 1000  # mm
             
@@ -237,11 +256,14 @@ class ResultsCanvas(FigureCanvas):
                 params['modified_mechanism'] = 'misto'
                 base_ductility = 2.5
                 
-            # Incremento duttilità per cerchiature
-            if 'K_cerchiature' in results['modified']:
+            # Incremento duttilità per cerchiature (stessa formula dello stato di fatto)
+            if 'K_cerchiature' in results['modified'] and results['modified']['K_cerchiature'] > 0:
                 frame_ratio = results['modified']['K_cerchiature'] / K
-                ductility_factor = 1 + 0.3 * min(frame_ratio / 0.3, 1.0)
-                params['modified_ductility'] = base_ductility * ductility_factor
+                if frame_ratio > 0.1:  # Contributo significativo
+                    ductility_factor = 1 + 0.3 * min(frame_ratio / 0.3, 1.0)
+                    params['modified_ductility'] = base_ductility * ductility_factor
+                else:
+                    params['modified_ductility'] = base_ductility
             else:
                 params['modified_ductility'] = base_ductility
                 
@@ -694,9 +716,19 @@ class CalcModule(QWidget):
             
             # Routing basato su materiale e tipo
             if materiale == 'acciaio':
+                # Verifica se è rinforzo calandrato - usa dati da 'arco'
+                tipo_rinforzo = rinforzo.get('tipo', '').lower()
+                is_calandrato = 'calandrato' in tipo_rinforzo
+
                 # Verifica profili multipli
-                arch_n_profili = rinforzo.get('architrave', {}).get('n_profili', 1)
-                pied_n_profili = rinforzo.get('piedritti', {}).get('n_profili', 1)
+                if is_calandrato and 'arco' in rinforzo:
+                    # Per calandrato, usa n_profili dall'arco
+                    arch_n_profili = rinforzo.get('arco', {}).get('n_profili', 1)
+                    pied_n_profili = 1  # Calandrato non ha piedritti
+                    logger.info(f"Rinforzo calandrato: usando arco.n_profili={arch_n_profili}")
+                else:
+                    arch_n_profili = rinforzo.get('architrave', {}).get('n_profili', 1)
+                    pied_n_profili = rinforzo.get('piedritti', {}).get('n_profili', 1)
                 
                 # Determina quale calcolatore usare
                 if use_standard_calc:
@@ -817,11 +849,23 @@ class CalcModule(QWidget):
         }
         
         try:
-            # Dati architrave
-            arch = rinforzo.get('architrave', {})
-            profilo = arch.get('profilo', '')
-            n_profili = arch.get('n_profili', 1)
-            ruotato = arch.get('ruotato', False)
+            # Verifica se è rinforzo calandrato
+            tipo_rinforzo = rinforzo.get('tipo', '').lower()
+            is_calandrato = 'calandrato' in tipo_rinforzo
+
+            # Dati architrave/arco
+            if is_calandrato and 'arco' in rinforzo:
+                # Per calandrato, usa dati dall'arco
+                arco_data = rinforzo.get('arco', {})
+                profilo = arco_data.get('profilo', '')
+                n_profili = arco_data.get('n_profili', 1)
+                ruotato = False  # Arco calandrato non è ruotato
+            else:
+                arch = rinforzo.get('architrave', {})
+                profilo = arch.get('profilo', '')
+                n_profili = arch.get('n_profili', 1)
+                ruotato = arch.get('ruotato', False)
+
             classe_acciaio = rinforzo.get('classe_acciaio', 'S235')
             
             # Tensione di snervamento
@@ -903,16 +947,59 @@ class CalcModule(QWidget):
             self.masonry_calc.set_project_data(self.project_data)
 
             logger.debug(f"FC applicato: {FC}, Aperture esistenti: {len([op for op in openings_input if op.get('existing', False)])}, Aperture con rinforzi: {len(openings_with_reinforcement)}")
-            
-            # Calcolo stato di fatto (solo aperture esistenti)
+
+            # Calcolo stato di fatto (aperture esistenti + rinforzi esistenti)
             existing_openings = [op for op in openings_input if op.get('existing', False)]
 
+            # Per lo stato di fatto, considera anche i rinforzi GIÀ ESISTENTI
+            existing_openings_with_existing_reinforcement = []
+            for op in existing_openings:
+                op_copy = op.copy()
+                # Mantieni il rinforzo solo se è marcato come esistente
+                if 'rinforzo' in op_copy and op_copy['rinforzo']:
+                    if not op_copy['rinforzo'].get('esistente', False):
+                        # Rimuovi rinforzo non esistente dallo stato di fatto
+                        op_copy = {k: v for k, v in op_copy.items() if k != 'rinforzo'}
+                existing_openings_with_existing_reinforcement.append(op_copy)
+
             V_t1_orig, V_t2_orig, V_t3_orig = self.masonry_calc.calculate_resistance(
-                wall_data, masonry_data, existing_openings
+                wall_data, masonry_data, existing_openings_with_existing_reinforcement
             )
             K_orig = self.masonry_calc.calculate_stiffness(
-                wall_data, masonry_data, existing_openings
+                wall_data, masonry_data, existing_openings_with_existing_reinforcement
             )
+
+            # Calcolo contributo cerchiature ESISTENTI per stato di fatto
+            K_cerchiature_esistenti = 0
+            V_cerchiature_esistenti = 0
+            for i, opening in enumerate(existing_openings_with_existing_reinforcement):
+                if 'rinforzo' in opening and opening['rinforzo']:
+                    if opening['rinforzo'].get('esistente', False):
+                        opening_id = f"A{i+1}_esistente"
+                        frame_result = self._calculate_frame_contribution(
+                            opening, opening['rinforzo'], wall_data, opening_id
+                        )
+                        K_cerchiature_esistenti += frame_result.get('K_frame', 0)
+                        V_cerchiature_esistenti += frame_result.get('V_resistance', 0)
+
+            # Aggiungi contributo cerchiature esistenti allo stato di fatto
+            K_orig += K_cerchiature_esistenti
+
+            # Aggiungi anche contributo RESISTENZA delle cerchiature esistenti
+            # Fattore di collaborazione muratura-telaio
+            collaborazione = 0.7  # Valore tipico per cerchiature metalliche
+
+            # Le cerchiature contribuiscono principalmente a V_t3 (pressoflessione)
+            V_t1_cerch_esist = V_cerchiature_esistenti * 0.3 * collaborazione
+            V_t2_cerch_esist = V_cerchiature_esistenti * 0.3 * collaborazione
+            V_t3_cerch_esist = V_cerchiature_esistenti * 0.8 * collaborazione
+
+            V_t1_orig += V_t1_cerch_esist
+            V_t2_orig += V_t2_cerch_esist
+            V_t3_orig += V_t3_cerch_esist
+
+            logger.info(f"Stato di fatto: K_muratura={K_orig-K_cerchiature_esistenti:.1f}, K_cerchiature_esistenti={K_cerchiature_esistenti:.1f}, K_totale={K_orig:.1f}")
+            logger.info(f"Stato di fatto: V_cerchiature_esistenti={V_cerchiature_esistenti:.1f}, contributi: V_t1+={V_t1_cerch_esist:.1f}, V_t2+={V_t2_cerch_esist:.1f}, V_t3+={V_t3_cerch_esist:.1f}")
 
             # Calcolo stato di progetto (tutte le aperture)
             V_t1_mod, V_t2_mod, V_t3_mod = self.masonry_calc.calculate_resistance(
@@ -1002,7 +1089,9 @@ class CalcModule(QWidget):
                     'V_t1': V_t1_orig,
                     'V_t2': V_t2_orig,
                     'V_t3': V_t3_orig,
-                    'V_min': V_min_orig
+                    'V_min': V_min_orig,
+                    'K_cerchiature': K_cerchiature_esistenti,  # Cerchiature esistenti
+                    'V_cerchiature': V_cerchiature_esistenti   # Contributo resistenza esistenti
                 },
                 'modified': {
                     'K': K_mod,
@@ -1011,7 +1100,7 @@ class CalcModule(QWidget):
                     'V_t3': V_t3_mod,
                     'V_min': V_min_mod,
                     'K_cerchiature': K_cerchiature,
-                    'V_cerchiature': V_cerchiature  # NUOVO: contributo resistenza
+                    'V_cerchiature': V_cerchiature  # Contributo resistenza totale
                 },
                 'verification': verification,
                 'FC': FC,

@@ -1,7 +1,7 @@
 """
 Modulo Input Struttura
 Gestisce l'inserimento dei dati geometrici del muro
-Versione aggiornata con gestione materiali avanzata
+Versione aggiornata con gestione materiali avanzata e UI migliorata
 """
 
 from PyQt5.QtWidgets import *
@@ -15,6 +15,18 @@ from datetime import datetime
 from src.gui.dialogs.opening_dialog_advanced import AdvancedOpeningDialog
 from src.widgets.wall_canvas_advanced import AdvancedWallCanvas
 from src.core.database.materials_database import MaterialsDatabase, MaterialEditorDialog
+
+# Import componenti UI migliorati
+try:
+    from src.gui.ui_enhancements import (
+        ValidatedSpinBox, ValidatedDoubleSpinBox, HelpLabel,
+        CollapsibleGroupBox, StatusIndicator
+    )
+    UI_ENHANCEMENTS_AVAILABLE = True
+except ImportError:
+    UI_ENHANCEMENTS_AVAILABLE = False
+    ValidatedSpinBox = None
+    ValidatedDoubleSpinBox = None
 
 # Fallback imports per compatibilità
 try:
@@ -605,26 +617,48 @@ class InputModule(QWidget):
         return group
         
     def create_wall_group(self):
-        """Crea gruppo geometria muro con supporto altezza variabile"""
+        """Crea gruppo geometria muro con supporto altezza variabile e validazione"""
         group = QGroupBox("Geometria Muro")
         layout = QGridLayout()
 
-        # Lunghezza
-        layout.addWidget(QLabel("Lunghezza L:"), 0, 0)
-        self.wall_length = QSpinBox()
-        self.wall_length.setRange(100, 2000)
-        self.wall_length.setValue(423)
-        self.wall_length.setSuffix(" cm")
-        self.wall_length.setToolTip("Lunghezza totale del muro")
+        # Lunghezza - con validazione
+        if UI_ENHANCEMENTS_AVAILABLE:
+            layout.addWidget(HelpLabel("Lunghezza L:",
+                "Lunghezza totale del pannello murario in cm.\n"
+                "Misurare da filo interno a filo interno."), 0, 0)
+            self.wall_length = ValidatedSpinBox()
+            self.wall_length.setRange(100, 2000)
+            self.wall_length.setValue(423)
+            self.wall_length.setSuffix(" cm")
+            self.wall_length.set_validation_range(warning_min=150, warning_max=1500)
+            self.wall_length.set_help_text("Lunghezza totale del muro (100-2000 cm)")
+        else:
+            layout.addWidget(QLabel("Lunghezza L:"), 0, 0)
+            self.wall_length = QSpinBox()
+            self.wall_length.setRange(100, 2000)
+            self.wall_length.setValue(423)
+            self.wall_length.setSuffix(" cm")
+            self.wall_length.setToolTip("Lunghezza totale del muro")
         layout.addWidget(self.wall_length, 0, 1)
 
-        # Altezza standard (media)
-        layout.addWidget(QLabel("Altezza H:"), 1, 0)
-        self.wall_height = QSpinBox()
-        self.wall_height.setRange(100, 1000)
-        self.wall_height.setValue(350)
-        self.wall_height.setSuffix(" cm")
-        self.wall_height.setToolTip("Altezza del muro (media se variabile)")
+        # Altezza standard (media) - con validazione
+        if UI_ENHANCEMENTS_AVAILABLE:
+            layout.addWidget(HelpLabel("Altezza H:",
+                "Altezza del pannello murario in cm.\n"
+                "Se variabile, indica l'altezza media."), 1, 0)
+            self.wall_height = ValidatedSpinBox()
+            self.wall_height.setRange(100, 1000)
+            self.wall_height.setValue(350)
+            self.wall_height.setSuffix(" cm")
+            self.wall_height.set_validation_range(warning_min=200, warning_max=600)
+            self.wall_height.set_help_text("Altezza del muro (100-1000 cm)")
+        else:
+            layout.addWidget(QLabel("Altezza H:"), 1, 0)
+            self.wall_height = QSpinBox()
+            self.wall_height.setRange(100, 1000)
+            self.wall_height.setValue(350)
+            self.wall_height.setSuffix(" cm")
+            self.wall_height.setToolTip("Altezza del muro (media se variabile)")
         layout.addWidget(self.wall_height, 1, 1)
 
         # Checkbox altezza variabile
@@ -659,13 +693,25 @@ class InputModule(QWidget):
         self.wall_height_right.setVisible(False)
         layout.addWidget(self.wall_height_right, 2, 3)
 
-        # Spessore
-        layout.addWidget(QLabel("Spessore s:"), 3, 0)
-        self.wall_thickness = QSpinBox()
-        self.wall_thickness.setRange(10, 100)
-        self.wall_thickness.setValue(30)
-        self.wall_thickness.setSuffix(" cm")
-        self.wall_thickness.setToolTip("Spessore del muro")
+        # Spessore - con validazione
+        if UI_ENHANCEMENTS_AVAILABLE:
+            layout.addWidget(HelpLabel("Spessore s:",
+                "Spessore del pannello murario in cm.\n"
+                "Per murature a due teste: 30-45 cm\n"
+                "Per murature a una testa: 15-25 cm"), 3, 0)
+            self.wall_thickness = ValidatedSpinBox()
+            self.wall_thickness.setRange(10, 100)
+            self.wall_thickness.setValue(30)
+            self.wall_thickness.setSuffix(" cm")
+            self.wall_thickness.set_validation_range(warning_min=20, warning_max=60)
+            self.wall_thickness.set_help_text("Spessore del muro (10-100 cm)")
+        else:
+            layout.addWidget(QLabel("Spessore s:"), 3, 0)
+            self.wall_thickness = QSpinBox()
+            self.wall_thickness.setRange(10, 100)
+            self.wall_thickness.setValue(30)
+            self.wall_thickness.setSuffix(" cm")
+            self.wall_thickness.setToolTip("Spessore del muro")
         layout.addWidget(self.wall_thickness, 3, 1)
 
         # Pulsante setti multipli
@@ -1080,6 +1126,10 @@ class InputModule(QWidget):
         self.openings_list.itemSelectionChanged.connect(self.on_opening_selection_changed)
         self.openings_list.itemDoubleClicked.connect(self.edit_opening)
 
+        # Segnali canvas per interattività
+        self.wall_canvas.opening_moved.connect(self.on_opening_moved)
+        self.wall_canvas.opening_selected.connect(self.on_canvas_opening_selected)
+
         # Altri cambiamenti
         self.project_name.textChanged.connect(lambda: self.data_changed.emit())
         self.project_location.textChanged.connect(lambda: self.data_changed.emit())
@@ -1119,7 +1169,22 @@ class InputModule(QWidget):
         has_selection = len(self.openings_list.selectedItems()) > 0
         self.edit_opening_btn.setEnabled(has_selection)
         self.remove_opening_btn.setEnabled(has_selection)
-        
+
+    def on_opening_moved(self, index):
+        """Chiamato quando un'apertura viene spostata nel canvas"""
+        if 0 <= index < len(self.wall_canvas.openings):
+            # Aggiorna la lista delle aperture per riflettere la nuova posizione
+            self.update_openings_list()
+            # Emetti segnale di modifica dati
+            self.data_changed.emit()
+            # Aggiorna info
+            self.update_info()
+
+    def on_canvas_opening_selected(self, index):
+        """Chiamato quando un'apertura viene selezionata nel canvas"""
+        if 0 <= index < self.openings_list.count():
+            self.openings_list.setCurrentRow(index)
+
     def add_opening(self):
         """Aggiunge nuova apertura"""
         dialog = AdvancedOpeningDialog(self)

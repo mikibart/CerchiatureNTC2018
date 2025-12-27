@@ -67,15 +67,18 @@ class AdvancedOpeningDialog(QDialog):
         layout.addWidget(buttons)
         
         self.setLayout(layout)
-        
+
         # Connessioni
         self.connect_signals()
+
+        # Inizializza visibilità campi per tipo default (Rettangolare)
+        self._update_geometry_fields_visibility(0)
         
     def create_geometry_tab(self):
         """Tab per geometria base"""
         widget = QWidget()
         layout = QFormLayout()
-        
+
         # Tipo apertura principale
         self.opening_type = QComboBox()
         self.opening_type.addItems([
@@ -88,45 +91,63 @@ class AdvancedOpeningDialog(QDialog):
             "Chiusura vano esistente"
         ])
         layout.addRow("Tipo apertura:", self.opening_type)
-        
+
         # Apertura esistente
         self.existing_check = QCheckBox("Apertura/nicchia esistente")
         layout.addRow("", self.existing_check)
-        
-        # Dimensioni base (sempre visibili)
+
+        # Separatore
+        separator1 = QFrame()
+        separator1.setFrameShape(QFrame.HLine)
+        separator1.setFrameShadow(QFrame.Sunken)
+        layout.addRow(separator1)
+
+        # Label dimensioni (dinamica)
+        self.dim_info_label = QLabel("")
+        self.dim_info_label.setStyleSheet("color: #666; font-style: italic;")
+        layout.addRow(self.dim_info_label)
+
+        # Dimensioni base (visibilità dinamica)
+        self.width_label = QLabel("Larghezza:")
         self.width_spin = QSpinBox()
         self.width_spin.setRange(10, 1000)
         self.width_spin.setValue(120)
         self.width_spin.setSuffix(" cm")
-        layout.addRow("Larghezza:", self.width_spin)
-        
+        layout.addRow(self.width_label, self.width_spin)
+
+        self.height_label = QLabel("Altezza totale:")
         self.height_spin = QSpinBox()
         self.height_spin.setRange(10, 1000)
         self.height_spin.setValue(230)
         self.height_spin.setSuffix(" cm")
-        layout.addRow("Altezza totale:", self.height_spin)
-        
+        layout.addRow(self.height_label, self.height_spin)
+
+        # Info altezza calcolata (per archi)
+        self.height_calc_label = QLabel("")
+        self.height_calc_label.setStyleSheet("color: #0066cc; font-weight: bold;")
+        layout.addRow("", self.height_calc_label)
+
         # Posizione
-        position_group = QGroupBox("Posizione")
+        self.position_group = QGroupBox("Posizione")
         pos_layout = QGridLayout()
-        
+
         pos_layout.addWidget(QLabel("X da sinistra:"), 0, 0)
         self.x_spin = QSpinBox()
         self.x_spin.setRange(0, 2000)
         self.x_spin.setValue(50)
         self.x_spin.setSuffix(" cm")
         pos_layout.addWidget(self.x_spin, 0, 1)
-        
+
         pos_layout.addWidget(QLabel("Y dal basso:"), 1, 0)
         self.y_spin = QSpinBox()
         self.y_spin.setRange(0, 1000)
         self.y_spin.setValue(0)
         self.y_spin.setSuffix(" cm")
         pos_layout.addWidget(self.y_spin, 1, 1)
-        
-        position_group.setLayout(pos_layout)
-        layout.addRow(position_group)
-        
+
+        self.position_group.setLayout(pos_layout)
+        layout.addRow(self.position_group)
+
         widget.setLayout(layout)
         return widget
         
@@ -467,6 +488,9 @@ class AdvancedOpeningDialog(QDialog):
         self.arch_thickness_check.toggled.connect(
             lambda checked: self.arch_thickness.setEnabled(checked)
         )
+        # Aggiorna altezza calcolata per archi
+        self.impost_height.valueChanged.connect(self._update_arch_height_calc)
+        self.arch_rise.valueChanged.connect(self._update_arch_height_calc)
         
         # Circolare
         self.diameter.valueChanged.connect(self.update_circular_preview)
@@ -477,7 +501,11 @@ class AdvancedOpeningDialog(QDialog):
         # Ovale
         self.oval_orientation.currentIndexChanged.connect(self.update_oval_preview)
         self.axis_ratio.valueChanged.connect(self.update_oval_preview)
-        
+
+        # Ellittica - sincronizza dimensioni base
+        self.semi_major.valueChanged.connect(self._update_ellipse_dimensions)
+        self.semi_minor.valueChanged.connect(self._update_ellipse_dimensions)
+
         # Nicchia
         self.is_niche.toggled.connect(
             lambda checked: self.niche_group.setEnabled(checked)
@@ -495,24 +523,109 @@ class AdvancedOpeningDialog(QDialog):
         )
         
     def on_type_changed(self, index):
-        """Gestisce cambio tipo apertura"""
+        """Gestisce cambio tipo apertura con aggiornamento dinamico campi"""
         # Indici: 0=Rett, 1=Arco, 2=Circ, 3=Ovale, 4=Ellisse, 5=Nicchia, 6=Chiusura
-        
+
         # Mostra/nasconde tab appropriati
         self.shape_stack.setCurrentIndex(min(index, 4))
-        
+
         # Abilita/disabilita tab
         self.tabs.setTabEnabled(2, index == 5)  # Tab nicchia
         self.tabs.setTabEnabled(3, index == 6)  # Tab chiusura
-        
+
+        # Gestione dinamica campi in base al tipo
+        self._update_geometry_fields_visibility(index)
+
         # Auto-seleziona checkbox appropriati
         if index == 5:  # Nicchia
             self.is_niche.setChecked(True)
             self.tabs.setCurrentIndex(2)
         elif index == 6:  # Chiusura
             self.is_closure.setChecked(True)
+            self.existing_check.setChecked(True)  # La chiusura implica esistente
             self.tabs.setCurrentIndex(3)
-            
+
+    def _update_geometry_fields_visibility(self, type_index):
+        """Aggiorna visibilità e comportamento campi geometria in base al tipo"""
+        # Reset stato base
+        self.width_spin.setEnabled(True)
+        self.height_spin.setEnabled(True)
+        self.width_label.setVisible(True)
+        self.width_spin.setVisible(True)
+        self.height_label.setVisible(True)
+        self.height_spin.setVisible(True)
+        self.height_calc_label.setVisible(False)
+        self.dim_info_label.setText("")
+        self.position_group.setVisible(True)
+
+        if type_index == 0:  # Rettangolare
+            self.dim_info_label.setText("Definisci larghezza e altezza dell'apertura rettangolare")
+            self.width_label.setText("Larghezza:")
+            self.height_label.setText("Altezza:")
+
+        elif type_index == 1:  # Ad arco
+            self.dim_info_label.setText("L'altezza totale sarà calcolata da imposta + freccia arco")
+            self.width_label.setText("Luce netta:")
+            self.height_label.setText("Altezza totale:")
+            self.height_spin.setEnabled(False)
+            self.height_calc_label.setVisible(True)
+            self._update_arch_height_calc()
+            # Vai al tab Forma Avanzata per configurare l'arco
+            self.tabs.setCurrentIndex(1)
+
+        elif type_index == 2:  # Circolare
+            self.dim_info_label.setText("Per forme circolari, usa il diametro nel tab Forma Avanzata")
+            self.width_label.setText("Larghezza (= diametro):")
+            self.height_label.setText("Altezza (= diametro):")
+            self.width_spin.setEnabled(False)
+            self.height_spin.setEnabled(False)
+            # Vai al tab Forma Avanzata
+            self.tabs.setCurrentIndex(1)
+
+        elif type_index == 3:  # Ovale
+            self.dim_info_label.setText("Configura orientamento e rapporto assi nel tab Forma Avanzata")
+            self.width_label.setText("Larghezza:")
+            self.height_label.setText("Altezza:")
+            # Vai al tab Forma Avanzata
+            self.tabs.setCurrentIndex(1)
+
+        elif type_index == 4:  # Ellittica
+            self.dim_info_label.setText("Configura semi-assi e rotazione nel tab Forma Avanzata")
+            self.width_label.setText("Larghezza:")
+            self.height_label.setText("Altezza:")
+            self.width_spin.setEnabled(False)
+            self.height_spin.setEnabled(False)
+            # Vai al tab Forma Avanzata
+            self.tabs.setCurrentIndex(1)
+
+        elif type_index == 5:  # Nicchia
+            self.dim_info_label.setText("Definisci dimensioni della nicchia (cavità non passante)")
+            self.width_label.setText("Larghezza nicchia:")
+            self.height_label.setText("Altezza nicchia:")
+
+        elif type_index == 6:  # Chiusura vano esistente
+            self.dim_info_label.setText("Inserisci le dimensioni del vano da chiudere")
+            self.width_label.setText("Larghezza vano:")
+            self.height_label.setText("Altezza vano:")
+
+    def _update_arch_height_calc(self):
+        """Calcola e mostra altezza totale per apertura ad arco"""
+        if self.opening_type.currentIndex() != 1:  # Solo per archi
+            return
+        impost = self.impost_height.value()
+        rise = self.arch_rise.value()
+        total_height = impost + rise
+        self.height_spin.setValue(total_height)
+        self.height_calc_label.setText(f"Altezza calcolata: {impost} (imposta) + {rise} (freccia) = {total_height} cm")
+
+    def _update_ellipse_dimensions(self):
+        """Aggiorna dimensioni base in base ai semi-assi ellittici"""
+        if self.opening_type.currentIndex() != 4:  # Solo per ellisse
+            return
+        # Larghezza = 2 * semi-asse maggiore, Altezza = 2 * semi-asse minore (o viceversa)
+        self.width_spin.setValue(self.semi_major.value() * 2)
+        self.height_spin.setValue(self.semi_minor.value() * 2)
+
     def update_arch_preview(self):
         """Aggiorna anteprima parametri arco"""
         width = self.width_spin.value()
@@ -724,3 +837,7 @@ class AdvancedOpeningDialog(QDialog):
             self.closure_thickness.setValue(closure.get('thickness', 12))
             self.has_connection.setChecked(closure.get('has_connection', True))
             self.connection_depth.setValue(closure.get('connection_depth', 12))
+
+        # Aggiorna visibilità campi in base al tipo caricato
+        current_type = self.opening_type.currentIndex()
+        self._update_geometry_fields_visibility(current_type)
