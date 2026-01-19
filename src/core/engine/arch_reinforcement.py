@@ -12,6 +12,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 import math
 import logging
+from typing import Dict, List, Optional, Tuple, Union
 
 from src.data.ntc2018_constants import NTC2018
 
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class ArchReinforcementManager:
-    """Gestisce il calcolo e la configurazione dei rinforzi per aperture ad arco"""
+    """Gestisce il calcolo e la configurazione dei rinforzi per aperture ad arco."""
     
     # Database profili standard con altezze in mm
     PROFILE_DATABASE = {
@@ -41,15 +42,15 @@ class ArchReinforcementManager:
     }
     
     @staticmethod
-    def calculate_arch_length(opening_data):
+    def calculate_arch_length(opening_data: Dict) -> float:
         """
-        Calcola la lunghezza sviluppata dell'arco
-        
+        Calcola la lunghezza sviluppata dell'arco.
+
         Args:
-            opening_data: dizionario con dati apertura
-            
+            opening_data (Dict): Dizionario con i dati dell'apertura.
+
         Returns:
-            float: lunghezza sviluppata in cm
+            float: Lunghezza sviluppata in cm.
         """
         if opening_data.get('type') != 'Ad arco' or 'arch_data' not in opening_data:
             return 0
@@ -92,15 +93,15 @@ class ArchReinforcementManager:
         return 0
         
     @staticmethod
-    def calculate_arch_radius(opening_data):
+    def calculate_arch_radius(opening_data: Dict) -> float:
         """
-        Calcola il raggio di curvatura dell'arco
-        
+        Calcola il raggio di curvatura dell'arco.
+
         Args:
-            opening_data: dizionario con dati apertura
-            
+            opening_data (Dict): Dizionario con i dati dell'apertura.
+
         Returns:
-            float: raggio in cm
+            float: Raggio di curvatura in cm.
         """
         if opening_data.get('type') != 'Ad arco' or 'arch_data' not in opening_data:
             return 0
@@ -126,15 +127,15 @@ class ArchReinforcementManager:
         return 0
         
     @staticmethod
-    def get_reinforcement_types_for_arch(opening_data):
+    def get_reinforcement_types_for_arch(opening_data: Dict) -> List[str]:
         """
-        Restituisce i tipi di rinforzo applicabili per un arco
-        
+        Restituisce i tipi di rinforzo applicabili per un arco.
+
         Args:
-            opening_data: dizionario con dati apertura
-            
+            opening_data (Dict): Dizionario con i dati dell'apertura.
+
         Returns:
-            list: lista tipi di rinforzo disponibili
+            List[str]: Lista dei tipi di rinforzo disponibili.
         """
         if opening_data.get('type') != 'Ad arco':
             return []
@@ -152,22 +153,22 @@ class ArchReinforcementManager:
         ]
         
     @staticmethod
-    def check_bendability(profile_name, radius_cm, steel_grade='S235'):
+    def check_bendability(profile_name: str, radius_cm: float, steel_grade: str = 'S235') -> Dict:
         """
-        Verifica la calandrabilità di un profilo
-        
+        Verifica la calandrabilità di un profilo.
+
         Args:
-            profile_name: nome del profilo (es. "HEA 200")
-            radius_cm: raggio di curvatura in cm
-            steel_grade: classe acciaio
-            
+            profile_name (str): Nome del profilo (es. "HEA 200").
+            radius_cm (float): Raggio di curvatura in cm.
+            steel_grade (str): Classe dell'acciaio.
+
         Returns:
-            dict: risultati verifica con chiavi:
-                - bendable: bool
-                - method: str (metodo consigliato)
-                - r_h_ratio: float
-                - residual_stress: float (MPa)
-                - warnings: list
+            Dict: Risultati della verifica con chiavi:
+                - bendable (bool): Se è calandrabile.
+                - method (str): Metodo consigliato.
+                - r_h_ratio (float): Rapporto raggio/altezza.
+                - residual_stress (float): Tensioni residue [MPa].
+                - warnings (List[str]): Lista avvisi.
         """
         result = {
             'bendable': False,
@@ -258,16 +259,16 @@ class ArchReinforcementManager:
         return result
         
     @staticmethod
-    def calculate_bending_segments(arc_length_cm, max_segment_length=100):
+    def calculate_bending_segments(arc_length_cm: float, max_segment_length: float = 100) -> int:
         """
-        Calcola numero di segmenti per discretizzazione arco
-        
+        Calcola numero di segmenti per discretizzazione arco.
+
         Args:
-            arc_length_cm: lunghezza sviluppata arco in cm
-            max_segment_length: lunghezza massima segmento in cm
-            
+            arc_length_cm (float): Lunghezza sviluppata arco in cm.
+            max_segment_length (float): Lunghezza massima segmento in cm.
+
         Returns:
-            int: numero di segmenti consigliato
+            int: Numero di segmenti consigliato.
         """
         n_segments = max(3, int(math.ceil(arc_length_cm / max_segment_length)))
         
@@ -278,17 +279,17 @@ class ArchReinforcementManager:
         return n_segments
         
     @staticmethod
-    def get_arch_points(opening_data, n_points=30, offset=0):
+    def get_arch_points(opening_data: Dict, n_points: int = 30, offset: float = 0) -> List[Tuple[float, float]]:
         """
-        Genera punti per disegnare l'arco
-        
+        Genera punti per disegnare l'arco.
+
         Args:
-            opening_data: dizionario con dati apertura
-            n_points: numero di punti
-            offset: offset radiale (positivo = esterno, negativo = interno)
-            
+            opening_data (Dict): Dizionario con i dati dell'apertura.
+            n_points (int): Numero di punti.
+            offset (float): Offset radiale (positivo = esterno, negativo = interno).
+
         Returns:
-            list: lista di tuple (x, y) in coordinate muro
+            List[Tuple[float, float]]: Lista di tuple (x, y) in coordinate muro.
         """
         points = []
         
@@ -355,20 +356,20 @@ class ArchReinforcementManager:
         return points
         
     @staticmethod
-    def calculate_material_quantity(opening_data, profile_name, n_profiles=1):
+    def calculate_material_quantity(opening_data: Dict, profile_name: str, n_profiles: int = 1) -> Dict:
         """
-        Calcola quantità di materiale necessario
-        
+        Calcola quantità di materiale necessario.
+
         Args:
-            opening_data: dizionario con dati apertura
-            profile_name: nome del profilo
-            n_profiles: numero di profili
-            
+            opening_data (Dict): Dizionario con i dati dell'apertura.
+            profile_name (str): Nome del profilo.
+            n_profiles (int): Numero di profili.
+
         Returns:
-            dict: quantità materiali con chiavi:
-                - steel_length_m: lunghezza totale acciaio in metri
-                - weight_kg: peso stimato in kg
-                - welding_length_m: lunghezza saldature in metri
+            Dict: Quantità materiali con chiavi:
+                - steel_length_m (float): Lunghezza totale acciaio in metri.
+                - weight_kg (float): Peso stimato in kg.
+                - welding_length_m (float): Lunghezza saldature in metri.
         """
         result = {
             'steel_length_m': 0,
@@ -408,16 +409,16 @@ class ArchReinforcementManager:
         return result
         
     @staticmethod
-    def generate_bending_report(opening_data, reinforcement_data):
+    def generate_bending_report(opening_data: Dict, reinforcement_data: Dict) -> str:
         """
-        Genera report dettagliato per officina di calandratura
-        
+        Genera report dettagliato per officina di calandratura.
+
         Args:
-            opening_data: dizionario con dati apertura
-            reinforcement_data: dizionario con dati rinforzo
-            
+            opening_data (Dict): Dizionario con i dati dell'apertura.
+            reinforcement_data (Dict): Dizionario con i dati del rinforzo.
+
         Returns:
-            str: report formattato
+            str: Report formattato.
         """
         report = []
         report.append("SCHEDA CALANDRATURA PROFILI")

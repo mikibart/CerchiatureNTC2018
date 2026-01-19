@@ -58,10 +58,14 @@ class SteelFrameCalculator:
         
     def calculate_frame_stiffness(self, opening_data: Dict, rinforzo_data: Dict) -> Dict:
         """
-        Calcola la rigidezza del telaio metallico
-        
+        Calcola la rigidezza del telaio metallico.
+
+        Args:
+            opening_data (Dict): Dati geometrici dell'apertura.
+            rinforzo_data (Dict): Dati del rinforzo in acciaio.
+
         Returns:
-            Dict: Risultato standardizzato con rigidezza e proprietà
+            Dict: Risultato standardizzato con rigidezza e proprietà.
         """
         # Inizializza risultato standard
         result = FrameResult(materiale='acciaio')
@@ -116,7 +120,17 @@ class SteelFrameCalculator:
         return result.to_dict()
             
     def _calculate_portal_frame_stiffness(self, h: float, L: float, rinforzo_data: Dict) -> float:
-        """Calcola rigidezza telaio completo (portale)"""
+        """
+        Calcola rigidezza telaio completo (portale).
+
+        Args:
+            h (float): Altezza apertura [m].
+            L (float): Larghezza apertura [m].
+            rinforzo_data (Dict): Dati del rinforzo.
+
+        Returns:
+            float: Rigidezza traslante del telaio [kN/m].
+        """
         # Profili
         architrave = rinforzo_data.get('architrave', {})
         piedritti = rinforzo_data.get('piedritti', {})
@@ -161,7 +175,16 @@ class SteelFrameCalculator:
         return K / 1000  # kN/m
         
     def _calculate_beam_stiffness(self, L: float, rinforzo_data: Dict) -> float:
-        """Calcola rigidezza solo architrave (trave su due appoggi elastici)"""
+        """
+        Calcola rigidezza solo architrave (trave su due appoggi elastici).
+
+        Args:
+            L (float): Larghezza apertura [m].
+            rinforzo_data (Dict): Dati del rinforzo.
+
+        Returns:
+            float: Rigidezza equivalente [kN/m].
+        """
         architrave = rinforzo_data.get('architrave', {})
         
         I_beam = self._get_profile_property(architrave.get('profilo'), 'Ix', architrave.get('ruotato'))
@@ -179,7 +202,17 @@ class SteelFrameCalculator:
         return K / 1000  # kN/m
         
     def _calculate_arch_stiffness(self, L: float, h: float, rinforzo_data: Dict) -> float:
-        """Calcola rigidezza arco metallico"""
+        """
+        Calcola rigidezza arco metallico.
+
+        Args:
+            L (float): Larghezza apertura [m].
+            h (float): Altezza apertura [m].
+            rinforzo_data (Dict): Dati del rinforzo.
+
+        Returns:
+            float: Rigidezza equivalente [kN/m].
+        """
         if 'calandrato' in rinforzo_data.get('tipo', '').lower():
             # Arco calandrato
             arco = rinforzo_data.get('arco', {})
@@ -208,7 +241,17 @@ class SteelFrameCalculator:
         
     def _get_profile_property(self, profile_name: str, property_name: str, 
                              is_rotated: bool = False) -> Optional[float]:
-        """Ottiene proprietà del profilo dal database"""
+        """
+        Ottiene proprietà del profilo dal database.
+
+        Args:
+            profile_name (str): Nome del profilo (es. 'HEA 200').
+            property_name (str): Proprietà richiesta ('Ix', 'Iy', 'Wx', 'A').
+            is_rotated (bool): Se True, considera il profilo ruotato di 90 gradi.
+
+        Returns:
+            Optional[float]: Valore della proprietà o None se non trovata.
+        """
         if not profile_name:
             return None
             
@@ -236,10 +279,15 @@ class SteelFrameCalculator:
     def calculate_frame_capacity(self, opening_data: Dict, rinforzo_data: Dict, 
                                wall_data: Dict) -> Dict:
         """
-        Calcola la capacità portante del telaio
-        
+        Calcola la capacità portante del telaio.
+
+        Args:
+            opening_data (Dict): Dati apertura.
+            rinforzo_data (Dict): Dati rinforzo.
+            wall_data (Dict): Dati parete.
+
         Returns:
-            Dict con M_Rd, V_Rd, N_Rd
+            Dict: Dizionario con M_Rd, V_Rd, N_Rd.
         """
         if not rinforzo_data or rinforzo_data.get('materiale') != 'acciaio':
             return {'M_Rd': 0, 'V_Rd': 0, 'N_Rd': 0}

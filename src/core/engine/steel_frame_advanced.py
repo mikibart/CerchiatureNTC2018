@@ -43,15 +43,15 @@ class SteelFrameAdvancedCalculator:
         
     def calculate_frame_stiffness_advanced(self, opening: Dict, reinforcement: Dict, wall_data: Dict) -> Dict:
         """
-        Calcola rigidezza telaio con profili multipli e vincoli avanzati
-        
+        Calcola rigidezza telaio con profili multipli e vincoli avanzati.
+
         Args:
-            opening: dati apertura
-            reinforcement: dati rinforzo con profili multipli
-            wall_data: dati muro
-            
+            opening (Dict): Dati geometrici dell'apertura.
+            reinforcement (Dict): Dati del rinforzo con profili multipli.
+            wall_data (Dict): Dati geometrici della parete.
+
         Returns:
-            Dict con rigidezza e altre proprietà calcolate
+            Dict: Dizionario con rigidezza e altre proprietà calcolate.
         """
         
         # Estrai dati
@@ -115,7 +115,18 @@ class SteelFrameAdvancedCalculator:
         
     def _calculate_composite_properties(self, profile_name: str, n_profiles: int, 
                                       spacing: float, disposition: str) -> Dict:
-        """Calcola proprietà sezione composta da profili multipli"""
+        """
+        Calcola proprietà sezione composta da profili multipli.
+
+        Args:
+            profile_name (str): Nome del profilo singolo (es. 'HEA 200').
+            n_profiles (int): Numero di profili.
+            spacing (float): Interasse tra i profili [m].
+            disposition (str): Disposizione profili ('In linea', 'Sfalsati', 'Accoppiati').
+
+        Returns:
+            Dict: Proprietà della sezione composta (Area, Inerzie, Moduli).
+        """
         
         # Proprietà profilo singolo
         if profile_name not in self.steel_profiles:
@@ -178,7 +189,19 @@ class SteelFrameAdvancedCalculator:
     def _calculate_portal_stiffness_advanced(self, L: float, H: float, 
                                            arch_props: Dict, pied_props: Dict,
                                            vincoli: Dict) -> float:
-        """Calcola rigidezza portale con vincoli avanzati"""
+        """
+        Calcola rigidezza portale con vincoli avanzati.
+
+        Args:
+            L (float): Larghezza portale [m].
+            H (float): Altezza portale [m].
+            arch_props (Dict): Proprietà sezione architrave.
+            pied_props (Dict): Proprietà sezione piedritti.
+            vincoli (Dict): Definizione vincoli alla base e ai nodi.
+
+        Returns:
+            float: Rigidezza traslante effettiva [kN/m].
+        """
         
         E = 210000 * 1000  # kN/m²
         
@@ -212,7 +235,17 @@ class SteelFrameAdvancedCalculator:
         
     def _calculate_beam_stiffness_advanced(self, L: float, arch_props: Dict, 
                                           vincoli: Dict) -> float:
-        """Calcola rigidezza trave con vincoli avanzati"""
+        """
+        Calcola rigidezza trave con vincoli avanzati.
+
+        Args:
+            L (float): Larghezza trave [m].
+            arch_props (Dict): Proprietà sezione architrave.
+            vincoli (Dict): Vincoli agli estremi.
+
+        Returns:
+            float: Rigidezza flessionale equivalente [kN/m].
+        """
         
         E = 210000 * 1000  # kN/m²
         I = arch_props['Iy'] * 1e-8  # m⁴
@@ -228,7 +261,15 @@ class SteelFrameAdvancedCalculator:
         return K_base
         
     def _get_base_constraint_factors(self, vincoli: Dict) -> Dict:
-        """Ottiene fattori moltiplicativi per vincoli alla base"""
+        """
+        Ottiene fattori moltiplicativi per vincoli alla base.
+
+        Args:
+            vincoli (Dict): Definizione vincoli.
+
+        Returns:
+            Dict: Fattori moltiplicativi per rigidezza e resistenza.
+        """
         
         factors = {'k_mult': 1.0, 'strength_mult': 1.0}
         
@@ -256,7 +297,15 @@ class SteelFrameAdvancedCalculator:
         return factors
         
     def _get_node_constraint_factors(self, vincoli: Dict) -> Dict:
-        """Ottiene fattori moltiplicativi per vincoli ai nodi"""
+        """
+        Ottiene fattori moltiplicativi per vincoli ai nodi.
+
+        Args:
+            vincoli (Dict): Definizione vincoli.
+
+        Returns:
+            Dict: Fattori moltiplicativi per rigidezza e resistenza.
+        """
         
         factors = {'k_mult': 1.0, 'strength_mult': 1.0}
         
@@ -281,7 +330,18 @@ class SteelFrameAdvancedCalculator:
         
     def _calculate_design_forces(self, opening: Dict, reinforcement: Dict,
                                 wall_data: Dict, K_frame: float) -> Dict:
-        """Calcola sollecitazioni di progetto sul telaio"""
+        """
+        Calcola sollecitazioni di progetto sul telaio.
+
+        Args:
+            opening (Dict): Dati apertura.
+            reinforcement (Dict): Dati rinforzo.
+            wall_data (Dict): Dati parete.
+            K_frame (float): Rigidezza calcolata [kN/m].
+
+        Returns:
+            Dict: Sollecitazioni massime (M_max, V_max, N_max).
+        """
         
         # Carichi dal muro
         t = wall_data.get('thickness', 30) / 100  # m

@@ -31,14 +31,14 @@ class ConnectionsVerifier:
         
     def verify_anchors(self, anchor_data: Dict, frame_forces: Dict) -> Dict:
         """
-        Verifica ancoraggi alla muratura
-        
+        Verifica ancoraggi alla muratura.
+
         Args:
-            anchor_data: dati sistema ancoraggio
-            frame_forces: sollecitazioni dal telaio
-            
+            anchor_data (Dict): Dati del sistema di ancoraggio.
+            frame_forces (Dict): Sollecitazioni derivanti dal telaio.
+
         Returns:
-            Dict con esito verifica
+            Dict: Esito della verifica.
         """
         
         # Sistema ancoraggio
@@ -58,7 +58,17 @@ class ConnectionsVerifier:
             
     def _verify_chemical_anchors(self, chimici: Dict, forces: Dict, 
                                 sistema: str) -> Dict:
-        """Verifica tasselli chimici"""
+        """
+        Verifica tasselli chimici.
+
+        Args:
+            chimici (Dict): Dati dei tasselli chimici.
+            forces (Dict): Sollecitazioni.
+            sistema (str): Tipo di sistema.
+
+        Returns:
+            Dict: Esito della verifica.
+        """
         
         # Dati tassello
         diametro = chimici.get('diametro', 'M16')
@@ -125,7 +135,16 @@ class ConnectionsVerifier:
         }
         
     def _verify_embedded_anchors(self, zanche: Dict, forces: Dict) -> Dict:
-        """Verifica zanche murate"""
+        """
+        Verifica zanche murate.
+
+        Args:
+            zanche (Dict): Dati delle zanche.
+            forces (Dict): Sollecitazioni.
+
+        Returns:
+            Dict: Esito della verifica.
+        """
         
         tipo = zanche.get('tipo', 'Zanca a L')
         n_per_metro = zanche.get('n_per_metro', 4)
@@ -164,7 +183,16 @@ class ConnectionsVerifier:
         }
         
     def verify_welded_connection(self, weld_data: Dict, forces: Dict) -> Dict:
-        """Verifica giunzione saldata"""
+        """
+        Verifica giunzione saldata.
+
+        Args:
+            weld_data (Dict): Dati della saldatura.
+            forces (Dict): Sollecitazioni.
+
+        Returns:
+            Dict: Esito della verifica.
+        """
         
         tipo_saldatura = weld_data.get('tipo', 'A cordone d\'angolo')
         altezza_cordone = weld_data.get('altezza_cordone', 6)  # mm
@@ -199,7 +227,16 @@ class ConnectionsVerifier:
         }
         
     def verify_bolted_connection(self, bolt_data: Dict, forces: Dict) -> Dict:
-        """Verifica giunzione bullonata"""
+        """
+        Verifica giunzione bullonata.
+
+        Args:
+            bolt_data (Dict): Dati della bullonatura.
+            forces (Dict): Sollecitazioni.
+
+        Returns:
+            Dict: Esito della verifica.
+        """
         
         classe = bolt_data.get('classe', '8.8')
         diametro = bolt_data.get('diametro', 'M16')

@@ -59,23 +59,43 @@ class FrameResult:
         return result
         
     def add_warning(self, warning: str):
-        """Aggiunge un avvertimento"""
+        """
+        Aggiunge un avvertimento.
+
+        Args:
+            warning (str): Messaggio di avvertimento.
+        """
         if self.warnings is None:
             self.warnings = []
         self.warnings.append(warning)
         logger.warning(warning)
         
     def set_error(self, error: str):
-        """Imposta un errore"""
+        """
+        Imposta un errore.
+
+        Args:
+            error (str): Messaggio di errore.
+        """
         self.error = error
         logger.error(error)
         
     def is_valid(self) -> bool:
-        """Verifica se il risultato è valido"""
+        """
+        Verifica se il risultato è valido.
+
+        Returns:
+            bool: True se non ci sono errori e la rigidezza è valida.
+        """
         return self.error is None and self.K_frame >= 0
         
     def get_summary(self) -> str:
-        """Ottiene un riepilogo testuale"""
+        """
+        Ottiene un riepilogo testuale.
+
+        Returns:
+            str: Riepilogo del risultato.
+        """
         summary = [
             f"Cerchiatura {self.materiale.upper()} - {self.tipo}",
             f"Rigidezza: {self.K_frame:.1f} kN/m",

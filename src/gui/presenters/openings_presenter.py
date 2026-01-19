@@ -10,7 +10,7 @@ Presenter per la gestione delle aperture e rinforzi:
 Arch. Michelangelo Bartolotta
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 import logging
 
@@ -61,38 +61,38 @@ class OpeningsPresenter(BasePresenter):
     # WALL CONTEXT
     # =========================================================================
 
-    def set_wall_context(self, wall_data: Dict):
+    def set_wall_context(self, wall_data: Dict[str, Any]):
         """
         Imposta il contesto parete per validazione aperture.
 
         Args:
-            wall_data: Dict con length, height, thickness
+            wall_data (Dict[str, Any]): Dict con length, height, thickness.
         """
         self._wall_data = wall_data
         self.emit('context_updated', wall_data)
 
-    def get_wall_context(self) -> Dict:
-        """Restituisce il contesto parete"""
+    def get_wall_context(self) -> Dict[str, Any]:
+        """Restituisce il contesto parete."""
         return self._wall_data.copy()
 
     # =========================================================================
     # OPENINGS MANAGEMENT
     # =========================================================================
 
-    def set_openings(self, openings: List[Dict]):
+    def set_openings(self, openings: List[Dict[str, Any]]):
         """
         Imposta la lista completa delle aperture.
 
         Args:
-            openings: Lista di aperture
+            openings (List[Dict[str, Any]]): Lista di aperture.
         """
         self._openings = [self._normalize_opening(o) for o in openings]
         self._selected_index = 0 if self._openings else -1
         self._update_stats()
         self.emit('openings_changed', self._openings)
 
-    def _normalize_opening(self, opening: Dict) -> Dict:
-        """Normalizza i dati di un'apertura"""
+    def _normalize_opening(self, opening: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalizza i dati di un'apertura."""
         return {
             'x': opening.get('x', 0),
             'y': opening.get('y', 0),
@@ -104,12 +104,12 @@ class OpeningsPresenter(BasePresenter):
             'id': opening.get('id', None)
         }
 
-    def get_openings(self) -> List[Dict]:
-        """Restituisce la lista delle aperture"""
+    def get_openings(self) -> List[Dict[str, Any]]:
+        """Restituisce la lista delle aperture."""
         return [o.copy() for o in self._openings]
 
-    def get_opening(self, index: int) -> Optional[Dict]:
-        """Restituisce un'apertura specifica"""
+    def get_opening(self, index: int) -> Optional[Dict[str, Any]]:
+        """Restituisce un'apertura specifica."""
         if 0 <= index < len(self._openings):
             return self._openings[index].copy()
         return None
@@ -142,23 +142,23 @@ class OpeningsPresenter(BasePresenter):
         """Restituisce l'indice dell'apertura selezionata"""
         return self._selected_index
 
-    def get_selected_opening(self) -> Optional[Dict]:
-        """Restituisce l'apertura selezionata"""
+    def get_selected_opening(self) -> Optional[Dict[str, Any]]:
+        """Restituisce l'apertura selezionata."""
         return self.get_opening(self._selected_index)
 
     # =========================================================================
     # OPENING MODIFICATION
     # =========================================================================
 
-    def add_opening(self, opening: Dict) -> Tuple[bool, ValidationResult]:
+    def add_opening(self, opening: Dict[str, Any]) -> Tuple[bool, ValidationResult]:
         """
         Aggiunge una nuova apertura.
 
         Args:
-            opening: Dati apertura
+            opening (Dict[str, Any]): Dati apertura.
 
         Returns:
-            Tuple (success, validation_result)
+            Tuple[bool, ValidationResult]: (successo, risultato validazione).
         """
         normalized = self._normalize_opening(opening)
         validation = self._validate_opening(normalized)
@@ -172,13 +172,16 @@ class OpeningsPresenter(BasePresenter):
 
         return validation.is_valid, validation
 
-    def update_opening_geometry(self, index: int, geometry: Dict) -> Tuple[bool, ValidationResult]:
+    def update_opening_geometry(self, index: int, geometry: Dict[str, Any]) -> Tuple[bool, ValidationResult]:
         """
         Aggiorna la geometria di un'apertura.
 
         Args:
-            index: Indice apertura
-            geometry: Dict con x, y, width, height
+            index (int): Indice apertura.
+            geometry (Dict[str, Any]): Dict con x, y, width, height.
+
+        Returns:
+            Tuple[bool, ValidationResult]: (successo, risultato validazione).
         """
         if index < 0 or index >= len(self._openings):
             result = ValidationResult()
@@ -220,8 +223,8 @@ class OpeningsPresenter(BasePresenter):
             return True
         return False
 
-    def _validate_opening(self, opening: Dict, exclude_index: int = -1) -> ValidationResult:
-        """Valida un'apertura"""
+    def _validate_opening(self, opening: Dict[str, Any], exclude_index: int = -1) -> ValidationResult:
+        """Valida un'apertura."""
         result = ValidationResult()
 
         x, y = opening.get('x', 0), opening.get('y', 0)
@@ -260,16 +263,16 @@ class OpeningsPresenter(BasePresenter):
 
         return result
 
-    def _check_overlap(self, op1: Dict, op2: Dict) -> bool:
-        """Verifica sovrapposizione tra due aperture"""
+    def _check_overlap(self, op1: Dict[str, Any], op2: Dict[str, Any]) -> bool:
+        """Verifica sovrapposizione tra due aperture."""
         margin = 1  # cm minimo
         return not (op1['x'] + op1['width'] + margin <= op2['x'] or
                    op2['x'] + op2['width'] + margin <= op1['x'] or
                    op1['y'] + op1['height'] + margin <= op2['y'] or
                    op2['y'] + op2['height'] + margin <= op1['y'])
 
-    def _check_maschi_warnings(self, opening: Dict, exclude_index: int, result: ValidationResult):
-        """Aggiunge warning per maschi stretti"""
+    def _check_maschi_warnings(self, opening: Dict[str, Any], exclude_index: int, result: ValidationResult):
+        """Aggiunge warning per maschi stretti."""
         min_width = NTC2018.InterventiLocali.MASCHIO_MIN_WIDTH * 100  # m -> cm
         wall_L = self._wall_data.get('length', 300)
 
@@ -298,16 +301,16 @@ class OpeningsPresenter(BasePresenter):
     # REINFORCEMENT
     # =========================================================================
 
-    def set_reinforcement(self, index: int, rinforzo: Dict) -> ValidationResult:
+    def set_reinforcement(self, index: int, rinforzo: Dict[str, Any]) -> ValidationResult:
         """
         Imposta il rinforzo per un'apertura.
 
         Args:
-            index: Indice apertura
-            rinforzo: Configurazione rinforzo
+            index (int): Indice apertura.
+            rinforzo (Dict[str, Any]): Configurazione rinforzo.
 
         Returns:
-            ValidationResult con esito
+            ValidationResult: Risultato validazione.
         """
         result = ValidationResult()
 
@@ -343,14 +346,14 @@ class OpeningsPresenter(BasePresenter):
             return True
         return False
 
-    def get_reinforcement(self, index: int) -> Optional[Dict]:
-        """Restituisce il rinforzo di un'apertura"""
+    def get_reinforcement(self, index: int) -> Optional[Dict[str, Any]]:
+        """Restituisce il rinforzo di un'apertura."""
         if 0 <= index < len(self._openings):
             return self._openings[index].get('rinforzo')
         return None
 
-    def _validate_reinforcement(self, rinforzo: Dict, opening: Dict, result: ValidationResult):
-        """Valida la configurazione del rinforzo"""
+    def _validate_reinforcement(self, rinforzo: Dict[str, Any], opening: Dict[str, Any], result: ValidationResult):
+        """Valida la configurazione del rinforzo."""
         if not rinforzo:
             result.add_error("Configurazione rinforzo vuota")
             return
@@ -435,8 +438,8 @@ class OpeningsPresenter(BasePresenter):
     # DATA COLLECTION
     # =========================================================================
 
-    def _validate_specific(self, data: Dict, result: ValidationResult):
-        """Validazione specifica per OpeningsPresenter"""
+    def _validate_specific(self, data: Dict[str, Any], result: ValidationResult):
+        """Validazione specifica per OpeningsPresenter."""
         openings = data.get('openings', [])
 
         # Verifica che nuove aperture abbiano rinforzo
@@ -449,8 +452,8 @@ class OpeningsPresenter(BasePresenter):
         if stats.opening_ratio > NTC2018.InterventiLocali.FORATURA_MAX * 100:
             result.add_error(f"Foratura {stats.opening_ratio:.1f}% > {NTC2018.InterventiLocali.FORATURA_MAX*100:.0f}% max")
 
-    def collect_data(self) -> Dict:
-        """Raccoglie i dati per salvataggio/calcolo"""
+    def collect_data(self) -> Dict[str, Any]:
+        """Raccoglie i dati per salvataggio/calcolo."""
         return {
             'openings': self.get_openings(),
             'stats': {
@@ -460,8 +463,8 @@ class OpeningsPresenter(BasePresenter):
             }
         }
 
-    def load_data(self, data: Dict):
-        """Carica dati"""
+    def load_data(self, data: Dict[str, Any]):
+        """Carica dati."""
         openings = data.get('openings', [])
         self.set_openings(openings)
 

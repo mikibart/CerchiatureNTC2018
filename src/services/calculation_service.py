@@ -403,12 +403,17 @@ class CalculationService:
         return result
 
     def calculate_quick(self, wall_data: Dict, masonry_data: Dict,
-                       openings: List[Dict] = None) -> Tuple[float, float, float, float]:
+                       openings: Optional[List[Dict]] = None) -> Tuple[float, float, float, float]:
         """
         Calcolo rapido senza cerchiature.
 
+        Args:
+            wall_data (Dict): Dati geometrici della parete.
+            masonry_data (Dict): Dati del materiale muratura.
+            openings (Optional[List[Dict]]): Lista delle aperture.
+
         Returns:
-            Tuple (K, V_t1, V_t2, V_t3)
+            Tuple[float, float, float, float]: Tuple (K, V_t1, V_t2, V_t3).
         """
         V_t1, V_t2, V_t3 = self.masonry_calc.calculate_resistance(
             wall_data, masonry_data, openings

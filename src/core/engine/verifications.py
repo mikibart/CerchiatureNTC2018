@@ -24,16 +24,16 @@ class NTC2018Verifier:
     def verify_local_intervention(self, K_original: float, K_modified: float,
                                 V_original: float, V_modified: float) -> Dict:
         """
-        Verifica se l'intervento è classificabile come locale secondo NTC 2018
-        
+        Verifica se l'intervento è classificabile come locale secondo NTC 2018.
+
         Args:
-            K_original: Rigidezza stato di fatto [kN/m]
-            K_modified: Rigidezza stato di progetto [kN/m]
-            V_original: Resistenza minima stato di fatto [kN]
-            V_modified: Resistenza minima stato di progetto [kN]
-            
+            K_original (float): Rigidezza stato di fatto [kN/m].
+            K_modified (float): Rigidezza stato di progetto [kN/m].
+            V_original (float): Resistenza minima stato di fatto [kN].
+            V_modified (float): Resistenza minima stato di progetto [kN].
+
         Returns:
-            Dict con risultati verifica
+            Dict: Dizionario con i risultati della verifica.
         """
         # Calcola variazioni
         delta_K = abs(K_modified - K_original) / K_original if K_original > 0 else 0
@@ -74,10 +74,14 @@ class NTC2018Verifier:
         
     def verify_opening_limits(self, wall_data: Dict, openings: list) -> Dict:
         """
-        Verifica i limiti geometrici delle aperture
-        
+        Verifica i limiti geometrici delle aperture.
+
+        Args:
+            wall_data (Dict): Dati geometrici della parete.
+            openings (list): Lista delle aperture.
+
         Returns:
-            Dict con risultati verifiche geometriche
+            Dict: Risultati delle verifiche geometriche.
         """
         L_wall = wall_data['length'] / 100  # m
         h_wall = wall_data['height'] / 100  # m
@@ -127,16 +131,16 @@ class NTC2018Verifier:
     def calculate_safety_factors(self, V_design: float, V_demand: float,
                                K_provided: float, K_required: float) -> Dict:
         """
-        Calcola i coefficienti di sicurezza
-        
+        Calcola i coefficienti di sicurezza.
+
         Args:
-            V_design: Resistenza di progetto [kN]
-            V_demand: Domanda (azione sismica) [kN]
-            K_provided: Rigidezza fornita [kN/m]
-            K_required: Rigidezza richiesta [kN/m]
-            
+            V_design (float): Resistenza di progetto [kN].
+            V_demand (float): Domanda (azione sismica) [kN].
+            K_provided (float): Rigidezza fornita [kN/m].
+            K_required (float): Rigidezza richiesta [kN/m].
+
         Returns:
-            Dict con coefficienti di sicurezza
+            Dict: Dizionario con i coefficienti di sicurezza.
         """
         # Coefficiente di sicurezza sulla resistenza
         if V_demand > 0:
@@ -159,13 +163,13 @@ class NTC2018Verifier:
         
     def get_verification_summary(self, results: Dict) -> str:
         """
-        Genera un riepilogo testuale delle verifiche
-        
+        Genera un riepilogo testuale delle verifiche.
+
         Args:
-            results: Dizionario con tutti i risultati delle verifiche
-            
+            results (Dict): Dizionario con tutti i risultati delle verifiche.
+
         Returns:
-            Stringa con riepilogo verifiche
+            str: Stringa con il riepilogo delle verifiche.
         """
         summary = []
         

@@ -13,7 +13,7 @@ Separa la logica di business dalla vista (InputModule).
 Arch. Michelangelo Bartolotta
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 import logging
 import json
 import os
@@ -73,8 +73,8 @@ class InputPresenter(BasePresenter):
                 return path
         return 'data/materials.json'
 
-    def _load_materials_db(self) -> Dict:
-        """Carica il database dei materiali"""
+    def _load_materials_db(self) -> Dict[str, Any]:
+        """Carica il database dei materiali."""
         try:
             if os.path.exists(self.materials_db_path):
                 with open(self.materials_db_path, 'r', encoding='utf-8') as f:
@@ -177,8 +177,8 @@ class InputPresenter(BasePresenter):
 
         return result
 
-    def get_wall_data(self) -> Dict:
-        """Restituisce i dati della parete"""
+    def get_wall_data(self) -> Dict[str, Any]:
+        """Restituisce i dati della parete."""
         return {
             'length': self.get_data('wall_length'),
             'height': self.get_data('wall_height'),
@@ -285,8 +285,8 @@ class InputPresenter(BasePresenter):
         self.set_data('fcm_d', fcm / FC, emit_change=False)
         self.set_data('tau0_d', tau0 / FC, emit_change=False)
 
-    def get_masonry_data(self) -> Dict:
-        """Restituisce i dati della muratura"""
+    def get_masonry_data(self) -> Dict[str, Any]:
+        """Restituisce i dati della muratura."""
         return {
             'type': self.get_data('masonry_type'),
             'fcm': self.get_data('fcm'),
@@ -295,8 +295,8 @@ class InputPresenter(BasePresenter):
             'knowledge_level': self.get_data('knowledge_level')
         }
 
-    def get_design_values(self) -> Dict:
-        """Restituisce i valori di progetto"""
+    def get_design_values(self) -> Dict[str, Any]:
+        """Restituisce i valori di progetto."""
         return {
             'FC': self.get_data('FC'),
             'fcm_d': self.get_data('fcm_d'),
@@ -307,16 +307,16 @@ class InputPresenter(BasePresenter):
     # OPENINGS MANAGEMENT
     # =========================================================================
 
-    def validate_opening(self, opening: Dict, exclude_index: int = -1) -> ValidationResult:
+    def validate_opening(self, opening: Dict[str, Any], exclude_index: int = -1) -> ValidationResult:
         """
         Valida un'apertura (posizione, dimensioni, sovrapposizioni).
 
         Args:
-            opening: Dict con x, y, width, height
-            exclude_index: Indice apertura da escludere (per modifica)
+            opening (Dict[str, Any]): Dict con x, y, width, height.
+            exclude_index (int): Indice apertura da escludere (per modifica).
 
         Returns:
-            ValidationResult con esito
+            ValidationResult: Risultato della validazione.
         """
         result = ValidationResult()
 
@@ -363,8 +363,8 @@ class InputPresenter(BasePresenter):
 
         return result
 
-    def _openings_overlap(self, op1: Dict, op2: Dict, margin: float = 1) -> bool:
-        """Verifica se due aperture si sovrappongono"""
+    def _openings_overlap(self, op1: Dict[str, Any], op2: Dict[str, Any], margin: float = 1) -> bool:
+        """Verifica se due aperture si sovrappongono."""
         x1, y1, w1, h1 = op1['x'], op1['y'], op1['width'], op1['height']
         x2, y2, w2, h2 = op2['x'], op2['y'], op2['width'], op2['height']
 
@@ -373,8 +373,8 @@ class InputPresenter(BasePresenter):
                    y1 + h1 + margin <= y2 or
                    y2 + h2 + margin <= y1)
 
-    def _check_maschi_width(self, new_opening: Dict, exclude_index: int = -1) -> List[str]:
-        """Verifica larghezza maschi murari risultanti"""
+    def _check_maschi_width(self, new_opening: Dict[str, Any], exclude_index: int = -1) -> List[str]:
+        """Verifica larghezza maschi murari risultanti."""
         warnings = []
         min_width = NTC2018.InterventiLocali.MASCHIO_MIN_WIDTH * 100  # m -> cm
 
@@ -405,15 +405,15 @@ class InputPresenter(BasePresenter):
 
         return warnings
 
-    def add_opening(self, opening: Dict) -> Tuple[bool, ValidationResult]:
+    def add_opening(self, opening: Dict[str, Any]) -> Tuple[bool, ValidationResult]:
         """
         Aggiunge un'apertura esistente.
 
         Args:
-            opening: Dict con x, y, width, height, [existing=True]
+            opening (Dict[str, Any]): Dict con x, y, width, height, [existing=True].
 
         Returns:
-            Tuple (success, validation_result)
+            Tuple[bool, ValidationResult]: (successo, risultato validazione).
         """
         # Imposta come esistente
         opening['existing'] = opening.get('existing', True)
@@ -429,8 +429,8 @@ class InputPresenter(BasePresenter):
         self.emit('openings_updated', openings)
         return True, validation
 
-    def update_opening(self, index: int, opening: Dict) -> Tuple[bool, ValidationResult]:
-        """Aggiorna un'apertura esistente"""
+    def update_opening(self, index: int, opening: Dict[str, Any]) -> Tuple[bool, ValidationResult]:
+        """Aggiorna un'apertura esistente."""
         openings = self.get_data('openings', [])
         if index < 0 or index >= len(openings):
             result = ValidationResult()
@@ -458,8 +458,8 @@ class InputPresenter(BasePresenter):
             return True
         return False
 
-    def get_openings(self) -> List[Dict]:
-        """Restituisce la lista delle aperture"""
+    def get_openings(self) -> List[Dict[str, Any]]:
+        """Restituisce la lista delle aperture."""
         return self.get_data('openings', []).copy()
 
     # =========================================================================
@@ -492,15 +492,15 @@ class InputPresenter(BasePresenter):
         self.set_data('constraint_bottom', bottom)
         self.set_data('constraint_top', top)
 
-    def get_loads_data(self) -> Dict:
-        """Restituisce i dati dei carichi"""
+    def get_loads_data(self) -> Dict[str, Any]:
+        """Restituisce i dati dei carichi."""
         return {
             'vertical': self.get_data('vertical_load'),
             'eccentricity': self.get_data('eccentricity')
         }
 
-    def get_constraints_data(self) -> Dict:
-        """Restituisce i dati dei vincoli"""
+    def get_constraints_data(self) -> Dict[str, Any]:
+        """Restituisce i dati dei vincoli."""
         return {
             'bottom': self.get_data('constraint_bottom'),
             'top': self.get_data('constraint_top')
@@ -510,8 +510,8 @@ class InputPresenter(BasePresenter):
     # VALIDATION & DATA COLLECTION
     # =========================================================================
 
-    def _validate_specific(self, data: Dict, result: ValidationResult):
-        """Implementa validazione specifica per InputPresenter"""
+    def _validate_specific(self, data: Dict[str, Any], result: ValidationResult):
+        """Implementa validazione specifica per InputPresenter."""
         # Parete
         if data.get('wall_length', 0) <= 0:
             result.add_error("Lunghezza parete non valida")
@@ -526,12 +526,12 @@ class InputPresenter(BasePresenter):
         if data.get('tau0', 0) <= 0:
             result.add_error("tau0 deve essere > 0")
 
-    def collect_data(self) -> Dict:
+    def collect_data(self) -> Dict[str, Any]:
         """
         Raccoglie tutti i dati per il salvataggio/calcolo.
 
         Returns:
-            Dict strutturato con tutti i dati di input
+            Dict[str, Any]: Dict strutturato con tutti i dati di input.
         """
         return {
             'project': {
@@ -546,8 +546,8 @@ class InputPresenter(BasePresenter):
             'openings': self.get_openings()
         }
 
-    def load_data(self, data: Dict):
-        """Carica dati da una sorgente esterna"""
+    def load_data(self, data: Dict[str, Any]):
+        """Carica dati da una sorgente esterna."""
         # Progetto
         project = data.get('project', {})
         self.set_data('project_name', project.get('name', 'Nuovo Progetto'))

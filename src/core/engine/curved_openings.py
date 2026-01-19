@@ -21,15 +21,15 @@ class CurvedOpeningsCalculator:
     def calculate_curved_frame(self, opening: Dict, reinforcement: Dict, 
                               wall_data: Dict) -> Dict:
         """
-        Calcola proprietà cerchiatura calandrata per arco
-        
+        Calcola proprietà cerchiatura calandrata per arco.
+
         Args:
-            opening: dati apertura
-            reinforcement: dati rinforzo con info arco
-            wall_data: dati muro
-            
+            opening (Dict): Dati geometrici dell'apertura.
+            reinforcement (Dict): Dati del rinforzo con info arco.
+            wall_data (Dict): Dati geometrici della parete.
+
         Returns:
-            Dict con rigidezza e proprietà calcolate
+            Dict: Dizionario con rigidezza e proprietà calcolate.
         """
         
         # Estrai dati arco
@@ -103,7 +103,15 @@ class CurvedOpeningsCalculator:
         }
         
     def _get_profile_inertia(self, profile_name: str) -> float:
-        """Ottiene inerzia profilo (cm⁴)"""
+        """
+        Ottiene inerzia profilo (cm⁴).
+
+        Args:
+            profile_name (str): Nome del profilo (es. 'IPE 160').
+
+        Returns:
+            float: Momento d'inerzia [cm⁴].
+        """
         
         # Database semplificato
         profiles = {
@@ -123,7 +131,18 @@ class CurvedOpeningsCalculator:
         
     def _calculate_horizontal_thrust(self, opening: Dict, wall_data: Dict,
                                    radius: float, rise: float) -> float:
-        """Calcola spinta orizzontale dell'arco"""
+        """
+        Calcola spinta orizzontale dell'arco.
+
+        Args:
+            opening (Dict): Dati apertura.
+            wall_data (Dict): Dati parete.
+            radius (float): Raggio dell'arco [m].
+            rise (float): Freccia dell'arco [m].
+
+        Returns:
+            float: Spinta orizzontale [kN].
+        """
         
         # Carico verticale
         t = wall_data.get('thickness', 30) / 100  # m
@@ -139,7 +158,16 @@ class CurvedOpeningsCalculator:
         return H
         
     def verify_arch_stability(self, arch_data: Dict, wall_data: Dict) -> Dict:
-        """Verifica stabilità arco"""
+        """
+        Verifica stabilità arco.
+
+        Args:
+            arch_data (Dict): Dati calcolati dell'arco (inclusa spinta).
+            wall_data (Dict): Dati parete.
+
+        Returns:
+            Dict: Esito verifica stabilità.
+        """
         
         H = arch_data.get('horizontal_thrust', 0)
         geometry = arch_data.get('geometry', {})
