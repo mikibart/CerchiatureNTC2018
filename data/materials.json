@@ -1,0 +1,140 @@
+{
+  "version": "1.0",
+  "source": "NTC 2018 - Circolare n. 7/2019 Tab. C8.5.I",
+  "masonry_types": {
+    "pietrame_disordinata": {
+      "name": "Muratura in pietrame disordinata",
+      "category": "Pietrame",
+      "fcm": 1.0,
+      "tau0": 0.020,
+      "E": 870,
+      "G": 290,
+      "w": 19.0,
+      "reference": "Tab. C8.5.I - riga 1"
+    },
+    "pietrame_sbozzata": {
+      "name": "Muratura a conci sbozzati con paramento di limitato spessore e nucleo interno",
+      "category": "Pietrame",
+      "fcm": 2.0,
+      "tau0": 0.035,
+      "E": 1050,
+      "G": 350,
+      "w": 20.0,
+      "reference": "Tab. C8.5.I - riga 2"
+    },
+    "pietrame_buona": {
+      "name": "Muratura in pietre a spacco con buona tessitura",
+      "category": "Pietrame",
+      "fcm": 2.6,
+      "tau0": 0.056,
+      "E": 1260,
+      "G": 420,
+      "w": 21.0,
+      "reference": "Tab. C8.5.I - riga 3"
+    },
+    "pietrame_blocchi": {
+      "name": "Muratura a blocchi lapidei squadrati",
+      "category": "Pietrame",
+      "fcm": 5.8,
+      "tau0": 0.090,
+      "E": 1740,
+      "G": 580,
+      "w": 22.0,
+      "reference": "Tab. C8.5.I - riga 4"
+    },
+    "mattoni_pieni": {
+      "name": "Muratura in mattoni pieni e malta di calce",
+      "category": "Mattoni",
+      "fcm": 2.4,
+      "tau0": 0.060,
+      "E": 1500,
+      "G": 500,
+      "w": 18.0,
+      "reference": "Tab. C8.5.I - riga 5"
+    },
+    "mattoni_semipieni": {
+      "name": "Muratura in mattoni semipieni con malta cementizia",
+      "category": "Mattoni",
+      "fcm": 3.8,
+      "tau0": 0.092,
+      "E": 1740,
+      "G": 580,
+      "w": 15.0,
+      "reference": "Tab. C8.5.I - riga 6"
+    },
+    "mattoni_forati": {
+      "name": "Muratura in mattoni forati con malta cementizia",
+      "category": "Mattoni",
+      "fcm": 2.8,
+      "tau0": 0.056,
+      "E": 1080,
+      "G": 360,
+      "w": 12.0,
+      "reference": "Tab. C8.5.I - riga 7"
+    },
+    "blocchi_tufo": {
+      "name": "Muratura in blocchi di tufo",
+      "category": "Blocchi",
+      "fcm": 2.0,
+      "tau0": 0.074,
+      "E": 1410,
+      "G": 470,
+      "w": 14.5,
+      "reference": "Tab. C8.5.I"
+    },
+    "blocchi_calcarenite": {
+      "name": "Muratura in blocchi di calcarenite",
+      "category": "Blocchi",
+      "fcm": 2.0,
+      "tau0": 0.074,
+      "E": 1410,
+      "G": 470,
+      "w": 14.5,
+      "reference": "Tab. C8.5.I"
+    },
+    "blocchi_cls": {
+      "name": "Muratura in blocchi di calcestruzzo",
+      "category": "Blocchi",
+      "fcm": 3.0,
+      "tau0": 0.080,
+      "E": 1800,
+      "G": 600,
+      "w": 16.0,
+      "reference": "Tab. C8.5.I"
+    },
+    "blocchi_laterizio": {
+      "name": "Muratura in blocchi di laterizio",
+      "category": "Blocchi",
+      "fcm": 4.0,
+      "tau0": 0.100,
+      "E": 2400,
+      "G": 800,
+      "w": 11.0,
+      "reference": "Tab. C8.5.I"
+    },
+    "mista": {
+      "name": "Muratura mista (pietrame + mattoni)",
+      "category": "Mista",
+      "fcm": 1.8,
+      "tau0": 0.025,
+      "E": 1200,
+      "G": 400,
+      "w": 19.0,
+      "reference": "Tab. C8.5.I"
+    }
+  },
+  "units": {
+    "fcm": "N/mm2 (MPa)",
+    "tau0": "N/mm2 (MPa)",
+    "E": "N/mm2 (MPa)",
+    "G": "N/mm2 (MPa)",
+    "w": "kN/m3"
+  },
+  "notes": {
+    "fcm": "Resistenza media a compressione",
+    "tau0": "Resistenza media a taglio in assenza di compressione",
+    "E": "Modulo di elasticita normale medio",
+    "G": "Modulo di elasticita tangenziale medio",
+    "w": "Peso specifico medio"
+  }
+}

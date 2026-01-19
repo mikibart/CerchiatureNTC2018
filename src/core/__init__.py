@@ -1,0 +1,1 @@
+"""Core - Motore di calcolo NTC 2018"""
