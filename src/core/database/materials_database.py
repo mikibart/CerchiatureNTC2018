@@ -9,6 +9,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 import json
 import os
+import functools
 from typing import Dict, List, Optional
 
 
@@ -200,11 +201,15 @@ class MaterialsDatabase(QObject):
             with open(self.custom_db_path, 'w', encoding='utf-8') as f:
                 json.dump(custom_materials, f, indent=2, ensure_ascii=False)
                 
+            # Clear cache on save to reflect changes if necessary
+            self.get_material.cache_clear()
+
             return True
         except Exception as e:
             print(f"Errore salvataggio materiali: {e}")
             return False
             
+    @functools.lru_cache(maxsize=128)
     def get_material(self, key: str) -> Optional[Dict]:
         """Ottiene materiale per chiave"""
         return self.materials.get(key)

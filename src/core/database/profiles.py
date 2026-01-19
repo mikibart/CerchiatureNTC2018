@@ -13,6 +13,7 @@ Unita':
 """
 
 from typing import Dict, Optional, List
+import functools
 
 
 # Database completo profili HEA
@@ -119,6 +120,7 @@ class ProfilesDatabase:
         self.profiles = STEEL_PROFILES
         self.steel_grades = STEEL_GRADES
 
+    @functools.lru_cache(maxsize=128)
     def get_profile(self, profile_type: str, size: str) -> Optional[Dict]:
         """
         Restituisce dati profilo specifico

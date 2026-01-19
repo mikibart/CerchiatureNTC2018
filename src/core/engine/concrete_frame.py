@@ -37,9 +37,13 @@ class ConcreteFrameCalculator:
     def calculate_frame_stiffness(self, opening_data: Dict, rinforzo_data: Dict) -> Dict:
         """
         Calcola la rigidezza del telaio in C.A.
-        
+
+        Args:
+            opening_data (Dict): Dati geometrici dell'apertura.
+            rinforzo_data (Dict): Dati del rinforzo in C.A.
+
         Returns:
-            Dict: Risultato standardizzato con rigidezza e proprietà
+            Dict: Risultato standardizzato con rigidezza e proprietà.
         """
         # Inizializza risultato standard
         result = FrameResult(materiale='ca')
@@ -107,7 +111,17 @@ class ConcreteFrameCalculator:
             
     def _calculate_rc_portal_frame_stiffness(self, h: float, L: float, 
                                            rinforzo_data: Dict) -> float:
-        """Calcola rigidezza telaio completo in C.A."""
+        """
+        Calcola rigidezza telaio completo in C.A.
+
+        Args:
+            h (float): Altezza apertura [m].
+            L (float): Larghezza apertura [m].
+            rinforzo_data (Dict): Dati del rinforzo.
+
+        Returns:
+            float: Rigidezza traslante del telaio [kN/m].
+        """
         # Proprietà calcestruzzo
         concrete_class = rinforzo_data.get('classe_cls', 'C25/30')
         concrete = self.concrete_properties.get(concrete_class, self.concrete_properties['C25/30'])
@@ -146,7 +160,16 @@ class ConcreteFrameCalculator:
         return K / 1000  # kN/m
         
     def _calculate_rc_beam_stiffness(self, L: float, rinforzo_data: Dict) -> float:
-        """Calcola rigidezza solo architrave C.A."""
+        """
+        Calcola rigidezza solo architrave C.A.
+
+        Args:
+            L (float): Larghezza apertura [m].
+            rinforzo_data (Dict): Dati del rinforzo.
+
+        Returns:
+            float: Rigidezza equivalente [kN/m].
+        """
         # Proprietà calcestruzzo
         concrete_class = rinforzo_data.get('classe_cls', 'C25/30')
         concrete = self.concrete_properties.get(concrete_class, self.concrete_properties['C25/30'])
@@ -172,9 +195,14 @@ class ConcreteFrameCalculator:
                                wall_data: Dict) -> Dict:
         """
         Calcola la capacità portante del telaio C.A.
-        
+
+        Args:
+            opening_data (Dict): Dati apertura.
+            rinforzo_data (Dict): Dati rinforzo.
+            wall_data (Dict): Dati parete.
+
         Returns:
-            Dict con M_Rd, V_Rd, N_Rd per i vari elementi
+            Dict: Dizionario con M_Rd, V_Rd, N_Rd per i vari elementi.
         """
         if not rinforzo_data or rinforzo_data.get('materiale') != 'ca':
             return {'M_Rd': 0, 'V_Rd': 0, 'N_Rd': 0}
@@ -244,10 +272,13 @@ class ConcreteFrameCalculator:
         
     def _parse_reinforcement(self, reinforcement_str: str) -> Dict:
         """
-        Analizza stringa armatura tipo "3φ16" o "4φ20"
-        
+        Analizza stringa armatura tipo "3φ16" o "4φ20".
+
+        Args:
+            reinforcement_str (str): Stringa descrittiva armatura.
+
         Returns:
-            Dict con numero barre, diametro e area totale
+            Dict: Dizionario con numero barre, diametro e area totale.
         """
         import re
         
@@ -277,10 +308,13 @@ class ConcreteFrameCalculator:
             
     def verify_minimum_reinforcement(self, rinforzo_data: Dict) -> Dict:
         """
-        Verifica armature minime secondo NTC 2018
-        
+        Verifica armature minime secondo NTC 2018.
+
+        Args:
+            rinforzo_data (Dict): Dati del rinforzo.
+
         Returns:
-            Dict con risultati verifiche
+            Dict: Risultati delle verifiche.
         """
         results = {'all_ok': True, 'messages': []}
         
@@ -330,14 +364,14 @@ class ConcreteFrameCalculator:
         
     def calculate_crack_width(self, M_Ed: float, rinforzo_data: Dict) -> float:
         """
-        Calcola apertura fessure in esercizio (SLE)
-        
+        Calcola apertura fessure in esercizio (SLE).
+
         Args:
-            M_Ed: Momento in esercizio [kN·m]
-            rinforzo_data: Dati rinforzo
-            
+            M_Ed (float): Momento in esercizio [kN·m].
+            rinforzo_data (Dict): Dati rinforzo.
+
         Returns:
-            w_k: Apertura caratteristica fessure [mm]
+            float: Apertura caratteristica fessure w_k [mm].
         """
         if rinforzo_data.get('materiale') != 'ca':
             return 0

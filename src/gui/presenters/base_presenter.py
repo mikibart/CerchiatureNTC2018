@@ -128,7 +128,7 @@ class BasePresenter(ABC):
         """Restituisce un valore dai dati del presenter."""
         return self._data.get(key, default)
 
-    def get_all_data(self) -> Dict:
+    def get_all_data(self) -> Dict[str, Any]:
         """Restituisce tutti i dati del presenter."""
         return self._data.copy()
 
@@ -150,15 +150,15 @@ class BasePresenter(ABC):
     # VALIDATION
     # =========================================================================
 
-    def validate(self, data: Dict = None) -> ValidationResult:
+    def validate(self, data: Optional[Dict[str, Any]] = None) -> ValidationResult:
         """
         Valida i dati correnti o quelli forniti.
 
         Args:
-            data: Dati da validare (se None, usa dati interni)
+            data (Optional[Dict[str, Any]]): Dati da validare (se None, usa dati interni).
 
         Returns:
-            ValidationResult con esito e messaggi
+            ValidationResult: Oggetto con esito e messaggi.
         """
         if data is None:
             data = self._data
@@ -176,15 +176,15 @@ class BasePresenter(ABC):
         return result
 
     @abstractmethod
-    def _validate_specific(self, data: Dict, result: ValidationResult):
+    def _validate_specific(self, data: Dict[str, Any], result: ValidationResult):
         """
         Implementa la validazione specifica per questo presenter.
 
         Da implementare nelle sottoclassi.
 
         Args:
-            data: Dati da validare
-            result: ValidationResult da popolare con errori/warning
+            data (Dict[str, Any]): Dati da validare.
+            result (ValidationResult): Oggetto da popolare con errori/warning.
         """
         pass
 
@@ -192,12 +192,12 @@ class BasePresenter(ABC):
     # LIFECYCLE
     # =========================================================================
 
-    def initialize(self, initial_data: Dict = None):
+    def initialize(self, initial_data: Optional[Dict[str, Any]] = None):
         """
         Inizializza il presenter con dati opzionali.
 
         Args:
-            initial_data: Dati iniziali
+            initial_data (Optional[Dict[str, Any]]): Dati iniziali.
         """
         if initial_data:
             for key, value in initial_data.items():
@@ -216,25 +216,25 @@ class BasePresenter(ABC):
     # =========================================================================
 
     @abstractmethod
-    def collect_data(self) -> Dict:
+    def collect_data(self) -> Dict[str, Any]:
         """
         Raccoglie e restituisce tutti i dati per il salvataggio.
 
         Da implementare nelle sottoclassi.
 
         Returns:
-            Dict con tutti i dati da salvare
+            Dict[str, Any]: Dizionario con tutti i dati da salvare.
         """
         pass
 
     @abstractmethod
-    def load_data(self, data: Dict):
+    def load_data(self, data: Dict[str, Any]):
         """
         Carica dati da una sorgente esterna.
 
         Da implementare nelle sottoclassi.
 
         Args:
-            data: Dati da caricare
+            data (Dict[str, Any]): Dati da caricare.
         """
         pass

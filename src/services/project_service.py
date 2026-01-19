@@ -12,7 +12,7 @@ Arch. Michelangelo Bartolotta
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable, Any
 from pathlib import Path
 import json
 import logging
@@ -322,8 +322,14 @@ class ProjectService:
         """Registra callback per notifiche cambio stato"""
         self._change_callbacks.append(callback)
 
-    def _notify_change(self, event: str, data: any = None):
-        """Notifica cambio stato ai listener"""
+    def _notify_change(self, event: str, data: Any = None):
+        """
+        Notifica cambio stato ai listener.
+
+        Args:
+            event (str): Nome evento.
+            data (Any): Dati evento.
+        """
         for callback in self._change_callbacks:
             try:
                 callback(event, data)

@@ -114,12 +114,12 @@ class FrameService:
         Calcola rigidezza e resistenza di una cerchiatura.
 
         Args:
-            opening: Dict con geometria apertura
-            rinforzo: Dict con dati rinforzo (profili, materiale, etc.)
-            wall_data: Dict con dati parete
+            opening (Dict): Dict con geometria apertura.
+            rinforzo (Dict): Dict con dati rinforzo (profili, materiale, etc.).
+            wall_data (Dict): Dict con dati parete.
 
         Returns:
-            Dict con risultati (K_frame, V_resistance, etc.)
+            Dict: Dict con risultati (K_frame, V_resistance, etc.).
         """
         result = FrameResult()
         result.materiale = rinforzo.get('materiale', 'acciaio')
@@ -168,8 +168,15 @@ class FrameService:
         return result.to_dict()
 
     def _handle_arch_opening(self, opening: Dict, rinforzo: Dict,
-                            result: FrameResult):
-        """Gestisce aperture ad arco"""
+                            result: FrameResult) -> None:
+        """
+        Gestisce aperture ad arco.
+
+        Args:
+            opening (Dict): Dati apertura.
+            rinforzo (Dict): Dati rinforzo.
+            result (FrameResult): Oggetto risultato da aggiornare.
+        """
         # Calcolo raggio arco
         result.arch_radius = self.arch_manager.calculate_arch_radius(opening)
         result.arch_length = self.arch_manager.calculate_arch_length(opening)
@@ -196,8 +203,16 @@ class FrameService:
                     logger.warning(f"Calandratura profilo {profilo}: {msg}")
 
     def _calculate_steel_frame(self, opening: Dict, rinforzo: Dict,
-                              wall_data: Dict, result: FrameResult):
-        """Calcola cerchiatura in acciaio"""
+                              wall_data: Dict, result: FrameResult) -> None:
+        """
+        Calcola cerchiatura in acciaio.
+
+        Args:
+            opening (Dict): Dati apertura.
+            rinforzo (Dict): Dati rinforzo.
+            wall_data (Dict): Dati parete.
+            result (FrameResult): Oggetto risultato da aggiornare.
+        """
         # Determina se usare calculator avanzato
         architrave = rinforzo.get('architrave', {})
         piedritti = rinforzo.get('piedritti', {})
@@ -231,8 +246,15 @@ class FrameService:
             result.error = "Calcolo acciaio fallito"
 
     def _calculate_concrete_frame(self, opening: Dict, rinforzo: Dict,
-                                  result: FrameResult):
-        """Calcola cerchiatura in cemento armato"""
+                                  result: FrameResult) -> None:
+        """
+        Calcola cerchiatura in cemento armato.
+
+        Args:
+            opening (Dict): Dati apertura.
+            rinforzo (Dict): Dati rinforzo.
+            result (FrameResult): Oggetto risultato da aggiornare.
+        """
         logger.info("Usando ConcreteFrameCalculator")
 
         calc_result = self.concrete_calc.calculate_frame_stiffness(
@@ -260,6 +282,13 @@ class FrameService:
         - Peso muratura sovrastante
         - Geometria apertura
         - Schema statico semplificato
+
+        Args:
+            opening (Dict): Dati apertura.
+            wall_data (Dict): Dati parete.
+
+        Returns:
+            Dict: Forze stimate (M_max, V_max, N_max, q_architrave).
         """
         # Geometria
         h_opening = opening.get('height', 0) / 100  # cm -> m
@@ -304,6 +333,13 @@ class FrameService:
         - Modulo plastico del profilo
         - Resistenza acciaio
         - Schema di calcolo semplificato
+
+        Args:
+            opening (Dict): Dati apertura.
+            rinforzo (Dict): Dati rinforzo.
+
+        Returns:
+            float: Resistenza a taglio [kN].
         """
         architrave = rinforzo.get('architrave', {})
         profilo = architrave.get('profilo', '')
@@ -346,7 +382,15 @@ class FrameService:
         return V_resistance
 
     def _get_steel_yield_strength(self, classe: str) -> float:
-        """Restituisce la tensione di snervamento dell'acciaio [MPa]"""
+        """
+        Restituisce la tensione di snervamento dell'acciaio [MPa].
+
+        Args:
+            classe (str): Classe dell'acciaio (es. 'S235').
+
+        Returns:
+            float: Tensione di snervamento [MPa].
+        """
         return NTC2018.Acciaio.get_fyk(classe)
 
     def _get_plastic_modulus(self, profilo: str, ruotato: bool = False) -> float:
@@ -354,8 +398,11 @@ class FrameService:
         Restituisce il modulo plastico del profilo [cm³].
 
         Args:
-            profilo: Nome profilo (es. 'HEA 100')
-            ruotato: True se il profilo è ruotato di 90°
+            profilo (str): Nome profilo (es. 'HEA 100').
+            ruotato (bool): True se il profilo è ruotato di 90°.
+
+        Returns:
+            float: Modulo plastico [cm³].
         """
         # Carica cache se necessario
         if self._plastic_moduli_cache is None:
@@ -371,8 +418,8 @@ class FrameService:
         else:
             return profile_data.get('Wpl_y', 0)
 
-    def _load_profiles_database(self):
-        """Carica il database dei profili"""
+    def _load_profiles_database(self) -> None:
+        """Carica il database dei profili."""
         try:
             # Percorsi possibili per il database
             paths = [
@@ -405,7 +452,16 @@ class FrameService:
             self._plastic_moduli_cache = {}
 
     def _verify_connections(self, ancoraggio: Dict, frame_result: FrameResult) -> Dict:
-        """Verifica le connessioni/ancoraggi"""
+        """
+        Verifica le connessioni/ancoraggi.
+
+        Args:
+            ancoraggio (Dict): Dati ancoraggio.
+            frame_result (FrameResult): Risultati calcolo telaio.
+
+        Returns:
+            Dict: Esito verifica connessioni.
+        """
         try:
             return self.connections_verifier.verify_anchors(
                 ancoraggio,
